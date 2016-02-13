@@ -1,12 +1,15 @@
 (set-env!
-  :resource-paths #{"src"}
   :source-paths #{"src"}
+  :resource-paths #{"src"}
   :repositories {"clojars" "https://clojars.org/repo"
                  #_["maven-central" "http://mvnrepository.com"]
                  "central" "http://repo1.maven.org/maven2/"}
   :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
                     [boot/core "2.5.2" :scope "provided"]
+                    [stencil "0.5.0"]
                     [adzerk/boot-test "1.0.7" :scope "test"]
+                    [cpmcdaniel/boot-copy "1.0" :scope "provided"]
+                    ;;[cpmcdaniel/boot-copy "<version>" :scope "provided"]
                     [com.google.appengine/appengine-java-sdk "LATEST" ;; "1.9.32"
                      :scope "provided" :extension "zip"]
                     ;; we need this so we can import KickStart:
@@ -20,9 +23,10 @@
 
 (def +version+ "0.1.0-SNAPSHOT")
 
-(require '[migae.boot-gae :as gae])
+;(require '[stencil.core :as stencil])
 
 (task-options!
+ target {:dir "build"}
   pom  {:project     'migae/boot-gae
         :version     +version+
         :description "Boot for GAE"

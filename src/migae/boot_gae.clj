@@ -2,9 +2,13 @@
   {:boot/export-tasks true}
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.set :as set]
+            [stencil.core :as stencil]
             [boot.pod :as pod]
             [boot.core :as core]
-            [boot.util :as util])
+            [boot.util :as util]
+            [boot.task.built-in :as builtin]
+            )
   (:import [com.google.appengine.tools KickStart]
            [java.io File]
            [java.net URL URLClassLoader]))
@@ -14,11 +18,60 @@
 ;; (def ^:private deps
 ;;   [['deraen/less4clj +version+]])
 
-;; TODO: support --sdk-root option
+;; for multiple subprojects:
+(def root-dir "")
+(def root-project "")
+
+(def project-dir (System/getProperty "user.dir"))
+(def build-dir (str/join "/" [project-dir "build"]))
+
+(def lib-dir  "build/WEB-INF/lib")
+;;(def classes-dir  "build/WEB-INF/lib")
+
+(defn output-classes-dir [] (str/join "/" [build-dir "WEB-INF" "classes"]))
+(defn output-webapp-dir [] (str/join "/" [build-dir]))
+;; (defn output-classes-dir [nm] (str/join "/" [build-dir "WEB-INF" "classes" nm]))
+(defn output-libs-dir [nm] (str/join "/" [build-dir "libs"]))
+(defn output-resources-dir [nm] (str/join "/" [build-dir "resources" nm]))
+
+(defn java-source-dir [nm] (str/join "/" [project-dir "src" nm "java"]))
+(defn input-resources-dir [nm] (str/join "/" [project-dir "src" nm "resources"]))
+
+(defn gae-app-dir [] "build")
+
 (def sdk-root-property "appengine.sdk.root")
 (def java-classpath-sys-prop-key "java.class.path")
 (def sdk-root-sys-prop-key "appengine.sdk.root")
-(def build-dir "build")
+
+(defn dump-props []
+  (println "project-dir: " project-dir)
+  (println "build-dir: " build-dir)
+  (println "output-classes-dir: " (output-classes-dir nil))
+  (println "output-resources-dir: " (output-resources-dir nil))
+  (println "java-source-dir: " (java-source-dir nil))
+  (println "input-resources-dir: " (input-resources-dir nil))
+  )
+
+(defn dump-env []
+  (let [e (core/get-env)]
+    (println "ENV:")
+    (util/pp* e)))
+
+#_(deftask copy-dir
+  "Copy dir"
+  [i input-dir PATH str     "The input directory path."
+   o output-dir PATH str     "The output directory path."]
+  (let [out-dir (io/file output-dir)]
+    (with-pre-wrap fileset
+      (let [in-files (->> fileset
+                          output-files
+                          (by-re matching)
+                          (map (juxt tmppath tmpfile)))]
+        (doseq [[path in-file] in-files]
+          (let [out-file (doto (io/file out-dir path) io/make-parents)]
+            (util/info "Copying %s to %s...\n" path out-dir)
+            (io/copy in-file out-file)))
+        fileset))))
 
 (defn exploded-sdk-dir []
   (let [dir (str (System/getenv "HOME")
@@ -91,8 +144,9 @@
   (let [tools-api-jar (get-tools-jar)
         path-sep (File/pathSeparator)
         jcp (System/getProperty java-classpath-sys-prop-key)]
-    (if (not (.contains jcp tools-api-jar))
-      (System/setProperty java-classpath-sys-prop-key (str/join path-sep [jcp tools-api-jar])))
+    #_(if (not (.contains jcp tools-api-jar))
+        (System/setProperty java-classpath-sys-prop-key (str/join path-sep [jcp tools-api-jar])))
+    (System/setProperty java-classpath-sys-prop-key tools-api-jar)
     (println "Java classpath: " (System/getProperty java-classpath-sys-prop-key))
 
     ;; Adding appengine-tools-api.jar to context ClassLoader
@@ -106,8 +160,16 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-(core/deftask explode-sdk
-  "Explode SDK jar"
+(core/deftask config
+  "config gae webapp"
+  [s servlets SERVLETS edn   "Servlets map"]
+  (println "TASK: boot-gae/config " servlets)
+  (doseq [servlet servlets]
+    (println "servlet: " servlet)
+    #_(stencil/render-file "servlets.stencil" {:servlets servlets})))
+
+(core/deftask install-sdk
+  "Unpack and install the SDK zipfile"
   []
   ;;FIXME- support --sdk-root, --sdk-version
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
@@ -143,12 +205,158 @@
             (pod/unpack-jar jar-path (.getParent sdk-dir))))
     fileset))))
 
-(core/deftask explode-war
-  "explode war
+(defn dump-tmpfiles
+  [lbl tfs]
+  (println "\n" lbl ":")
+  (doseq [tf tfs] (println (core/tmp-file tf))))
 
-The default behavior of the War task is to copy the content of src/main/webapp to the root of the archive. Your webapp directory may of course contain a WEB-INF sub-directory, which may contain a web.xml file. Your compiled classes are compiled to WEB-INF/classes. All the dependencies of the runtime [24] configuration are copied to WEB-INF/lib.  https://docs.gradle.org/current/userguide/war_plugin.html"
+(defn dump-tmpdirs
+  [lbl tds]
+  (println "\n" lbl ":")
+  (doseq [td tds] (println td)))
+
+(defn dump-fs
+  [fileset]
+  (doseq [f (:dirs fileset)] (println "DIR: " f))
+  (doseq [f (:tree fileset)] (println "F: " f)))
+  ;; (dump-tmpfiles "INPUTFILES" (core/input-files fileset))
+  ;; (dump-tmpdirs "INPUTDIRS" (core/input-dirs fileset))
+  ;; (dump-tmpdirs "OUTPUTFILESET" (core/output-files (core/output-fileset fileset)))
+  ;; (dump-tmpfiles "OUTPUTFILES" (core/output-files fileset))
+  ;; (dump-tmpdirs "OUTPUTDIRS" (core/output-dirs fileset))
+  ;; (dump-tmpfiles "USERFILES" (core/user-files fileset))
+  ;; (dump-tmpdirs "USERDIRS" (core/user-dirs fileset)))
+
+(core/deftask webapp
+  "copy webapp to build"
   []
-  )
+  (println "TASK: webapp")
+  (comp
+   (builtin/sift :include #{#".*.clj$"}
+                 :invert true)
+   (builtin/target :dir #{(output-webapp-dir)}
+                   :no-clean true)))
+
+#_(core/deftask clj-cp
+  "Copy files from the fileset to another directory.
+  Example: (copy jar files to /home/foo/jars):
+     $ boot build copy -m '\\.jar$' -o /home/foo/jars"
+  [o output-dir PATH str     "The output directory path."
+   m matching REGEX #{regex} "The set of regexes matching paths to backup."]
+  (println "TASK: clj-cp")
+  (let [out-dir (if output-dir (io/file output-dir) (output-classes-dir))
+        matching (if matching matching #{#"\.clj$"})]
+    (core/with-pre-wrap fileset
+      (let [in-files (->> fileset
+                          core/input-files
+                          (core/by-re matching)
+                          (map (juxt core/tmp-path core/tmp-file)))]
+        (doseq [[path in-file] in-files]
+          (let [out-file (doto (io/file out-dir path) io/make-parents)]
+            (util/info "Copying %s to %s...\n" path out-dir)
+            (io/copy in-file out-file)))
+        fileset))))
+
+(core/deftask clj-cp
+  "Copy source .clj files to <build>/WEB-INF/classes"
+  []
+  (println "TASK: clj-cp " (output-classes-dir))
+  (comp
+   (builtin/sift :include #{#".*.clj$"})
+   (builtin/target :dir #{(output-classes-dir)}
+                   :no-clean true)))
+
+(core/deftask deps
+  "Install dependency jars in <build>/WEB-INF/lib"
+  []
+  (println "TASK: libs")
+  (core/with-pre-wrap fileset
+  (let [tmp (core/tmp-dir!)
+        prev (atom nil)
+        jars (pod/jars-in-dep-order (core/get-env))
+        out-dir (doto (io/file lib-dir)
+                  io/make-parents)]
+    (reset! prev fileset)
+    (doseq [jar jars]
+      (let [out-file (io/file out-dir (.getName jar))]
+        ;; (println "Copying jar: " (.getName jar)
+        ;;          " to: " (.getPath out-file))
+        (io/make-parents out-file)
+        (io/copy jar (io/as-file (.getPath out-file)))))
+    fileset)))
+
+#_(core/deftask clj-devx
+  "clojure"
+  []
+  (println "TASK: clj-dev")
+  (core/with-pre-wrap fileset
+  (let [tmp (core/tmp-dir!)
+        prev (atom nil)
+        src (->> fileset
+                 (core/fileset-diff @prev)
+                 core/input-files
+                 (core/not-by-re [#"~$"])
+                 (core/by-ext [".clj"])
+                 #_(map (juxt core/tmp-path core/tmp-file)))]
+    (reset! prev fileset)
+
+    (doseq [f src]
+      (let [p (.getPath (core/tmp-file f))
+            relpath (core/tmp-path f)
+            ;; _ (println "relpath: " relpath (type relpath))
+            of (str gae-app-dir "/WEB-INF/classes" "/" relpath)]
+        (println "Copying " p " to " of)
+        (io/copy (io/as-file p) (io/as-file of))))
+
+    ;;(println "TMP: " tmp)
+    ;; (doseq [in src]
+    ;;   (println "SRC: " in)
+    ;;   (let [in-file  (c/tmp-file in)
+    ;;         in-path  (c/tmp-path in)
+    ;;         out-file (doto (io/file tmp in-path) io/make-parents)]
+    ;;     (compile-lc! in-file out-file)))
+  #_(-> fileset
+      (core/add-resource tmp)
+      core/commit!)
+
+    ;; (dump-props)
+    ;; (dump-env)
+    ;; (println "FILES keys: " (keys fileset))
+    ;; (util/pp* fileset)
+
+    fileset)))
+
+ ;; (let [hls (->> fileset
+ ;;                     (boot/fileset-diff @prev-fileset)
+ ;;                     boot/input-files
+ ;;                     (boot/by-ext [file-ext])
+ ;;                     (map (juxt boot/tmp-path boot/tmp-file)))]
+ ;;        (reset! prev-fileset fileset)
+ ;;        (doseq [[p in] hls]
+ ;;          (let [out (doto (io/file tmp-files p) io/make-parents)]
+ ;;            (->> in slurp (inline-code start end) (spit out)))))
+ ;;      (-> fileset (boot/add-source tmp-files)  boot/commit!))))
+
+(core/deftask gae-aot "compile clj" []
+  (println "TASK: gae-aot")
+  ;; (core/with-pre-wrap fileset
+  ;;   (let [fs fileset]
+      (comp
+            (builtin/aot :namespace #{'migae.servlets})
+            (builtin/sift :include #{#".*\.class" #".*\.clj"})
+            (builtin/target :dir #{(output-classes-dir)}
+                            :no-clean true)
+            #_(builtin/sift :add-resource #{"src/main/clojure"}
+                          :include #{#".*~$"}
+                          :invert true)))
+
+;; NB: explode-war comes from the gae gradle plugin - not necessary with boot!
+;; (core/deftask explode-war
+;;   "explode war
+
+;; The default behavior of the War task is to copy the content of src/main/webapp to the root of the archive. Your webapp directory may of course contain a WEB-INF sub-directory, which may contain a web.xml file. Your compiled classes are compiled to WEB-INF/classes. All the dependencies of the runtime [24] configuration are copied to WEB-INF/lib.  https://docs.gradle.org/current/userguide/war_plugin.html"
+;;   []
+;;   )
 
 (defn ->args [param-map]
   (let [r (flatten (for [[k v] param-map]
@@ -162,6 +370,77 @@ The default behavior of the War task is to copy the content of src/main/webapp t
                         (str (get kw->opt k) "=" v))))]
     (println "MERGE: " (pr-str r))
     r))
+
+(def app-cfg-ns "com.google.appengine.tools.admin.AppCfg")
+
+(core/deftask deploy
+  "Installs a new version of the application onto the server, as the default version for end users."
+  ;; options from AppCfg.java, see also appcfg.sh --help
+  [s server SERVER str "--server"
+   e email EMAIL str   "The username to use. Will prompt if omitted."
+   H host  HOST  str   "Overrides the Host header sent with all RPCs."
+   p proxy PROXYHOST str "'PROXYHOST[:PORT]'.  Proxies requests through the given proxy server."
+   _ proxy-https PROXYHOST str "'PROXYHOST[:PORT].  Proxies HTTPS requests through the given proxy server."
+   _ no-cookies bool      "Do not save/load access credentials to/from disk."
+   _ sdk-root ROOT str   "Overrides where the SDK is located."
+   b build-dir BUILD str "app build dir"
+   _ passin   bool          "Always read the login password from stdin."
+   A application APPID str "application id"
+   M module MODULE str      "module"
+   V version VERSION str   "(major) version"
+   _ oauth2 bool            "Ignored (OAuth2 is the default)."
+   _ noisy bool             "Log much more information about what the tool is doing."
+   _ enable-jar-splitting bool "Split large jar files (> 10M) into smaller fragments."
+   _ jar-splitting-excludes SUFFIXES str "list of files to be excluded from all jars"
+   _ disable-jar-jsps bool "Do not jar the classes generated from JSPs."
+   _ enable-jar-classes bool "Jar the WEB-INF/classes content."
+   _ delete-jsps bool "Delete the JSP source files after compilation."
+   _ retain-upload-dir bool "Do not delete temporary (staging) directory used in uploading."
+   _ compile-encoding ENC str "The character encoding to use when compiling JSPs."
+   _ num-days NUM_DAYS int "number of days worth of log data to get"
+   _ severity SEVERITY int "Severity of app-level log messages to get"
+   _ include-all bool   "Include everything in log messages."
+   a append bool          "Append to existing file."
+   _ num-runs NUM-RUNS int "Number of scheduled execution times to compute."
+   f force bool           "Force deletion of indexes without being prompted."
+   _ no-usage-reporting bool "Disable usage reporting."
+   D auto-update-dispatch bool "Include dispatch.yaml in updates"
+   _ sdk-help bool "Display SDK help screen"
+   v verbose bool          "Print invocation args"]
+  (validate-tools-api-jar)
+  (println "PARAMS: " *opts*)
+  (let [opts (merge {:sdk-root (exploded-sdk-dir) :use-java7 true :build-dir "build"}
+                    *opts*)
+        params (into [] (for [[k v] (remove (comp nil? second)
+                                            (dissoc opts :build-dir :verbose :sdk-help))]
+                          (str "--" (str/replace (name k) #"-" "_")
+                               (if (not (instance? Boolean v)) (str "=" v)))))
+        params (if (:sdk-help *opts*)
+                 ["help" "update"]
+                 (conj params "update" (:build-dir opts)))
+        params (into-array String params)
+        ;; ClassLoader classLoader = Thread.currentThread().contextClassLoader
+        class-loader (-> (Thread/currentThread) (.getContextClassLoader))
+        cl (.getParent class-loader)
+        app-cfg (Class/forName app-cfg-ns true class-loader)]
+
+  ;; def appCfg = classLoader.loadClass(APPENGINE_TOOLS_MAIN)
+  ;; appCfg.main(params as String[])
+    (def method (first (filter #(= (. % getName) "main") (. app-cfg getMethods))))
+    (println "MAIN: " method)
+
+    ;; (let [jargs ["--enable_jar_splitting"
+    ;;              (str "--sdk_root=" (exploded-sdk-dir))
+    ;;              "update"]
+    ;;       jargs (into-array String jargs)]
+    ;;   (def invoke-args (into-array Object [jargs]))
+
+    (def invoke-args (into-array Object [params]))
+    (if (:verbose *opts*)
+      (doseq [arg params]
+        (println (str "INVOKE ARG: " arg))))
+    (. method invoke nil invoke-args))
+    )
 
 (core/deftask run
   "Run devappserver"
@@ -196,7 +475,8 @@ The default behavior of the War task is to copy the content of src/main/webapp t
 
    ;; _ exploded-war-directory VAL str "--exploded_war_directory"
 
-  (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)]
+  (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)
+        ]
     (println "*OPTS*: " *opts*)
     (println "KS-PARAMS: " ks-params)
 
@@ -204,16 +484,17 @@ The default behavior of the War task is to copy the content of src/main/webapp t
     ;; first arg in gradle plugin: MAIN_CLASS = 'com.google.appengine.tools.development.DevAppServerMain'
 
     (let [args (->args ks-params)
+          _ (println "ARGS: " args)
           main-class "com.google.appengine.tools.development.DevAppServerMain"
-          jargs (into [] (cons main-class args))
-          jargs (into-array String (conj jargs "build/exploded-bapp"))
+          ;; jargs (list* main-class args)
+          ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
           jargs ["com.google.appengine.tools.development.DevAppServerMain"
                  (str "--sdk_root=" (exploded-sdk-dir))
-                 "build/exploded-app"]
+                 (gae-app-dir)]
           jargs (into-array String jargs)]
 
-      (println "JARGS: " jargs (type jargs))
+      (println "jargs: " jargs (type jargs))
       (doseq [a jargs] (println "JARG: " a))
       ;; implicit (System) params: java.class.path
       ;; (System/setProperty sdk-root-property sdk-root)
@@ -221,21 +502,36 @@ The default behavior of the War task is to copy the content of src/main/webapp t
 
       (validate-tools-api-jar)
 
+      ;; (pod/add-classpath "build/exploded-app/WEB-INF/classes/*")
+      ;; (pod/add-classpath "build/exploded-app/WEB-INF/lib/*")
+      ;; (doseq [j (pod/get-classpath)] (println "pod classpath: " j))
+
+      ;; (System/setProperty "java.class.path"
+      ;;                     (str/join ":" (into [] (for [j (pod/get-classpath)] (str j)))))
+
+      ;; (println "system classpath: " (System/getenv "java.class.path"))
+
     ;; ClassLoader classLoader = Thread.currentThread().contextClassLoader
-      (let [class-loader (. (Thread/currentThread) getContextClassLoader)
+      (let [;;class-loader (. (Thread/currentThread) getContextClassLoader)
+            class-loader (-> (Thread/currentThread) (.getContextClassLoader))
+            cl (.getParent class-loader)
             _ (println "class-loader: " class-loader (type class-loader))
             ;; Class kickStart = Class.forName('com.google.appengine.tools.KickStart', true, classLoader)
             kick-start (Class/forName "com.google.appengine.tools.KickStart" true class-loader)
             ]
       (println "kick-start: " kick-start (type kick-start))
-      (println "classpath: " (System/getenv "java.class.path"))
-      (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))
-      (def invoke-args (into-array Object [jargs]))
-      (. method invoke nil invoke-args)
 
-        ;; kickStart.main(params as String[])
-        ;; (. com.google.appengine.tools.KickStart main jargs)
-;;        (. (eval kick-start) main jargs)
+      #_(doseq [j (pod/get-classpath)]
+        (let [url (java.net.URL. (str j))]
+          (println "URL: " url)
+          (-> cl (.addURL url))))
+
+      ;; (pod/with-eval-in @pod
+        (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))
+        (def invoke-args (into-array Object [jargs]))
+        (. method invoke nil invoke-args)
+        ;; )
+
     ))))
 
 
