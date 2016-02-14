@@ -65,8 +65,8 @@
 
   {{/servlets}}
 
-  <!-- ################ -->
   {{#security}}
+  <!-- ################ -->
   <security-constraint>
     <web-resource-collection>
       <web-resource-name>{{resource.name}}</web-resource-name>
@@ -83,6 +83,61 @@
     </auth-constraint>
   </security-constraint>
   {{/security}}
+
+  {{#appstats}}
+  <!-- ################ -->
+  <!-- Google Appengine Appstat service -->
+  <!-- https://cloud.google.com/appengine/docs/java/tools/appstats -->
+  <filter-mapping>
+    <url-pattern>{{filter.url}}</url-pattern>
+    <filter-name>{{name}}-filter</filter-name>
+  </filter-mapping>
+  <filter>
+    <filter-name>{{name}}-filter</filter-name>
+    {{#filter.display}}
+    <display-name>{{filter.display.name}}</display-name>
+    {{/filter.display}}
+    {{#filter.desc}}
+    <description>{{filter.desc.text}}</description>
+    {{/filter.desc}}
+    <filter-class>com.google.appengine.tools.appstats.AppstatsFilter</filter-class>
+    {{#filter.params}}
+    <init-param>
+      <param-name>{{name}}</param-name>
+      <param-value>{{val}}</param-value>
+    </init-param>
+    {{/filter.params}}
+  </filter>
+  <servlet-mapping>
+    <url-pattern>{{url}}</url-pattern>
+    <servlet-name>{{name}}-servlet</servlet-name>
+  </servlet-mapping>
+  <servlet>
+    <servlet-name>{{name}}-servlet</servlet-name>
+    <servlet-class>com.google.appengine.tools.appstats.AppstatsServlet</servlet-class>
+    {{#display}}
+    <display-name>{{name}}</display-name>
+    {{/display}}
+    {{#desc}}
+    <description>{{text}}</description>
+    {{/desc}}
+    {{#params}}
+    <init-param>
+      <param-name>{{name}}</param-name>
+      <param-value>{{val}}</param-value>
+    </init-param>
+    {{/params}}
+  </servlet>
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>{{name}}</web-resource-name>
+      <url-pattern>{{url}}</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+      <role-name>{{security-role}}</role-name>
+    </auth-constraint>
+  </security-constraint>
+  {{/appstats}}
 
   {{#welcome}}
   <!-- #################### -->

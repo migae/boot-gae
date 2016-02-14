@@ -278,14 +278,18 @@
         web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
         appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
         ]
-    (println "STENCIL: " appengine-xml)
+    (println "STENCIL: " web-xml)
     (comp
      ;; step 1: process template, put result in new Fileset
      (core/with-pre-wrap fileset
        (let [tmp-dir (core/tmp-dir!)
-             out-path "web.xml"
-             out-file (doto (io/file tmp-dir out-path) io/make-parents)]
-         (spit out-file web-xml)
+             web-xml-out-path "web.xml"
+             web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
+             appengine-xml-out-path "appengine-web.xml"
+             appengine-xml-out-file (doto (io/file tmp-dir appengine-xml-out-path) io/make-parents)
+             ]
+         (spit web-xml-out-file web-xml)
+         (spit appengine-xml-out-file appengine-xml)
          (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
 
      ;; step 3: commit new .xml
