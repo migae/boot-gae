@@ -1,6 +1,7 @@
 (set-env!
   :source-paths #{"src"}
   :resource-paths #{"src"}
+  ;; :asset-paths #{"src"}
   :repositories {"clojars" "https://clojars.org/repo"
                  #_["maven-central" "http://mvnrepository.com"]
                  "central" "http://repo1.maven.org/maven2/"}

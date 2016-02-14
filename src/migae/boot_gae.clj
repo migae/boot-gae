@@ -18,6 +18,37 @@
 ;; (def ^:private deps
 ;;   [['deraen/less4clj +version+]])
 
+(defn expand-home [s]
+  (if (or (.startsWith s "~") (.startsWith s "$HOME"))
+    (str/replace-first s "~" (System/getProperty "user.home"))
+    s))
+
+#_(doseq [dep (filter #(str/starts-with? (.getName %) "appengine-java-sdk")
+                    (pod/resolve-dependency-jars (core/get-env) true))]
+  (println "DEP: " (.getName dep)))
+
+(def sdk-string (let [jars (pod/resolve-dependency-jars (core/get-env) true)
+                   zip (filter #(str/starts-with? (.getName %) "appengine-java-sdk") jars)
+                   fname (first (for [f zip] (.getName f)))
+                    sdk-string (subs fname 0 (str/last-index-of fname "."))]
+               ;; (println "sdk-string: " sdk-string)
+               sdk-string))
+
+(def config-map (merge {:build-dir "build"
+                        :sdk-root (let [dir (str (System/getenv "HOME") "/.appengine-sdk")]
+                                    (str dir "/" sdk-string))}
+                       (reduce (fn [altered-map [k v]] (assoc altered-map k
+                                                              (if (= k :sdk-root)
+                                                                (str (expand-home v) "/" sdk-string)
+                                                                v)))
+                               {} (:gae (core/get-env)))))
+
+(defn classes-dir [] (str (:build-dir config-map) "/WEB-INF/classes"))
+
+(defn lib-dir [] (str (:build-dir config-map) "/WEB-INF/lib"))
+
+(def appcfg-class "com.google.appengine.tools.admin.AppCfg")
+
 ;; for multiple subprojects:
 (def root-dir "")
 (def root-project "")
@@ -25,12 +56,6 @@
 (def project-dir (System/getProperty "user.dir"))
 (def build-dir (str/join "/" [project-dir "build"]))
 
-(def lib-dir  "build/WEB-INF/lib")
-;;(def classes-dir  "build/WEB-INF/lib")
-
-(defn output-classes-dir [] (str/join "/" [build-dir "WEB-INF" "classes"]))
-(defn output-webapp-dir [] (str/join "/" [build-dir]))
-;; (defn output-classes-dir [nm] (str/join "/" [build-dir "WEB-INF" "classes" nm]))
 (defn output-libs-dir [nm] (str/join "/" [build-dir "libs"]))
 (defn output-resources-dir [nm] (str/join "/" [build-dir "resources" nm]))
 
@@ -43,10 +68,15 @@
 (def java-classpath-sys-prop-key "java.class.path")
 (def sdk-root-sys-prop-key "appengine.sdk.root")
 
+(defn print-task
+  [task opts]
+  (if (or (:verbose opts) (:verbose config-map) (:list-tasks config-map))
+    (println "TASK: " task)))
+
 (defn dump-props []
   (println "project-dir: " project-dir)
   (println "build-dir: " build-dir)
-  (println "output-classes-dir: " (output-classes-dir nil))
+  (println "classes-dir: " (classes-dir))
   (println "output-resources-dir: " (output-resources-dir nil))
   (println "java-source-dir: " (java-source-dir nil))
   (println "input-resources-dir: " (input-resources-dir nil))
@@ -57,33 +87,28 @@
     (println "ENV:")
     (util/pp* e)))
 
-#_(deftask copy-dir
-  "Copy dir"
-  [i input-dir PATH str     "The input directory path."
-   o output-dir PATH str     "The output directory path."]
-  (let [out-dir (io/file output-dir)]
-    (with-pre-wrap fileset
-      (let [in-files (->> fileset
-                          output-files
-                          (by-re matching)
-                          (map (juxt tmppath tmpfile)))]
-        (doseq [[path in-file] in-files]
-          (let [out-file (doto (io/file out-dir path) io/make-parents)]
-            (util/info "Copying %s to %s...\n" path out-dir)
-            (io/copy in-file out-file)))
-        fileset))))
 
-(defn exploded-sdk-dir []
-  (let [dir (str (System/getenv "HOME")
-                 ;;FIXME: don't hardcode "/.gradle"
-                 "/.gradle/appengine-sdk")
-        fname (.getName
-               (io/as-file (pod/resolve-dependency-jar
-                            (core/get-env)
-                            '[com.google.appengine/appengine-java-sdk "LATEST" :extension "zip"])))
-        dirname (subs fname 0 (str/last-index-of fname "."))]
-    ;; (println "SDK: " (str dir "/" dirname))
-    (str dir "/" dirname)))
+(defn dump-tmpfiles
+  [lbl tfs]
+  (println "\n" lbl ":")
+  (doseq [tf tfs] (println (core/tmp-file tf))))
+
+(defn dump-tmpdirs
+  [lbl tds]
+  (println "\n" lbl ":")
+  (doseq [td tds] (println td)))
+
+(defn dump-fs
+  [fileset]
+  (doseq [f (:dirs fileset)] (println "DIR: " f))
+  (doseq [f (:tree fileset)] (println "F: " f)))
+  ;; (dump-tmpfiles "INPUTFILES" (core/input-files fileset))
+  ;; (dump-tmpdirs "INPUTDIRS" (core/input-dirs fileset))
+  ;; (dump-tmpdirs "OUTPUTFILESET" (core/output-files (core/output-fileset fileset)))
+  ;; (dump-tmpfiles "OUTPUTFILES" (core/output-files fileset))
+  ;; (dump-tmpdirs "OUTPUTDIRS" (core/output-dirs fileset))
+  ;; (dump-tmpfiles "USERFILES" (core/user-files fileset))
+  ;; (dump-tmpdirs "USERDIRS" (core/user-dirs fileset)))
 
 (def config-props
   {;; https://docs.gradle.org/current/userguide/war_plugin.html
@@ -126,238 +151,6 @@
    :sdk-root "--sdk_root"
    :start-on-first-thread "--startOnFirstThread"})
 
-(defn- find-mainfiles [fs]
-  (->> fs
-       core/input-files
-       (core/by-ext [".clj"])))
-
-
-(defn get-tools-jar []
-  (let [file-sep (System/getProperty "file.separator")
-        _ (println "File Sep: " file-sep)
-        tools-api-jar (str/join file-sep [(exploded-sdk-dir) "lib" "appengine-tools-api.jar"])]
-    (if (not (.exists (io/as-file tools-api-jar)))
-      (throw (Exception. (str "Required library 'appengine-tools-api.jar' could not be found in specified path: " tools-api-jar "!"))))
-    tools-api-jar))
-
-(defn validate-tools-api-jar []
-  (let [tools-api-jar (get-tools-jar)
-        path-sep (File/pathSeparator)
-        jcp (System/getProperty java-classpath-sys-prop-key)]
-    #_(if (not (.contains jcp tools-api-jar))
-        (System/setProperty java-classpath-sys-prop-key (str/join path-sep [jcp tools-api-jar])))
-    (System/setProperty java-classpath-sys-prop-key tools-api-jar)
-    (println "Java classpath: " (System/getProperty java-classpath-sys-prop-key))
-
-    ;; Adding appengine-tools-api.jar to context ClassLoader
-    (let [;; ClassLoader rootClassLoader = ClassLoader.systemClassLoader.parent
-          root-class-loader (.getParent (ClassLoader/getSystemClassLoader))
-          ;;URLClassLoader appengineClassloader
-          ;;  = new URLClassLoader([new File(appEngineToolsApiJar).toURI().toURL()] as URL[], rootClassLoader)
-          gae-class-loader (let [tools-jar-url [(.toURL (.toURI (io/as-file tools-api-jar)))]]
-                                 (URLClassLoader. (into-array tools-jar-url) root-class-loader))
-          _ (println "GAE Class Loader: " gae-class-loader)]
-      ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
-      (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
-
-(core/deftask config
-  "config gae webapp"
-  [s servlets SERVLETS edn   "Servlets map"]
-  (println "TASK: boot-gae/config " servlets)
-  (doseq [servlet servlets]
-    (println "servlet: " servlet)
-    #_(stencil/render-file "servlets.stencil" {:servlets servlets})))
-
-(core/deftask install-sdk
-  "Unpack and install the SDK zipfile"
-  []
-  ;;FIXME- support --sdk-root, --sdk-version
-  ;;NB: java property expected by kickstart is "appengine.sdk.root"
-  (print "EXPLODE-SDK: ")
-  (let [jar-path (pod/resolve-dependency-jar (core/get-env)
-                                             '[com.google.appengine/appengine-java-sdk "1.9.32"
-                                               :extension "zip"])
-                prev        (atom nil)]
-    (core/with-pre-wrap fileset
-      (let [tmpfiles (core/not-by-re [#"~$"] (core/input-files fileset))
-            ;; _ (doseq [tf tmpfiles] (println (core/tmp-file tf)))
-            src (->> fileset
-                     (core/fileset-diff @prev)
-                     core/input-files
-                     (core/by-ext [".clj"]))
-            sdk-dir (io/as-file (exploded-sdk-dir))]
-        (reset! prev fileset)
-        (if (.exists sdk-dir)
-          (do
-            (let [file-sep (System/getProperty "file.separator")
-                  tools-api-jar (str/join file-sep [(exploded-sdk-dir) "lib" "appengine-tools-api.jar"])]
-              (if (not (.exists (io/as-file tools-api-jar)))
-                (do
-                  (println "Found sdk-dir but not its contents; re-exploding")
-                  (core/empty-dir! sdk-dir)
-                  (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
-                  (pod/unpack-jar jar-path (.getParent sdk-dir)))
-                ;; if verbose
-                (println "SDK already exploded to: " (.getPath sdk-dir)))))
-          (do
-            ;; if verbose
-            (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
-            (pod/unpack-jar jar-path (.getParent sdk-dir))))
-    fileset))))
-
-(defn dump-tmpfiles
-  [lbl tfs]
-  (println "\n" lbl ":")
-  (doseq [tf tfs] (println (core/tmp-file tf))))
-
-(defn dump-tmpdirs
-  [lbl tds]
-  (println "\n" lbl ":")
-  (doseq [td tds] (println td)))
-
-(defn dump-fs
-  [fileset]
-  (doseq [f (:dirs fileset)] (println "DIR: " f))
-  (doseq [f (:tree fileset)] (println "F: " f)))
-  ;; (dump-tmpfiles "INPUTFILES" (core/input-files fileset))
-  ;; (dump-tmpdirs "INPUTDIRS" (core/input-dirs fileset))
-  ;; (dump-tmpdirs "OUTPUTFILESET" (core/output-files (core/output-fileset fileset)))
-  ;; (dump-tmpfiles "OUTPUTFILES" (core/output-files fileset))
-  ;; (dump-tmpdirs "OUTPUTDIRS" (core/output-dirs fileset))
-  ;; (dump-tmpfiles "USERFILES" (core/user-files fileset))
-  ;; (dump-tmpdirs "USERDIRS" (core/user-dirs fileset)))
-
-(core/deftask webapp
-  "copy webapp to build"
-  []
-  (println "TASK: webapp")
-  (comp
-   (builtin/sift :include #{#".*.clj$"}
-                 :invert true)
-   (builtin/target :dir #{(output-webapp-dir)}
-                   :no-clean true)))
-
-#_(core/deftask clj-cp
-  "Copy files from the fileset to another directory.
-  Example: (copy jar files to /home/foo/jars):
-     $ boot build copy -m '\\.jar$' -o /home/foo/jars"
-  [o output-dir PATH str     "The output directory path."
-   m matching REGEX #{regex} "The set of regexes matching paths to backup."]
-  (println "TASK: clj-cp")
-  (let [out-dir (if output-dir (io/file output-dir) (output-classes-dir))
-        matching (if matching matching #{#"\.clj$"})]
-    (core/with-pre-wrap fileset
-      (let [in-files (->> fileset
-                          core/input-files
-                          (core/by-re matching)
-                          (map (juxt core/tmp-path core/tmp-file)))]
-        (doseq [[path in-file] in-files]
-          (let [out-file (doto (io/file out-dir path) io/make-parents)]
-            (util/info "Copying %s to %s...\n" path out-dir)
-            (io/copy in-file out-file)))
-        fileset))))
-
-(core/deftask clj-cp
-  "Copy source .clj files to <build>/WEB-INF/classes"
-  []
-  (println "TASK: clj-cp " (output-classes-dir))
-  (comp
-   (builtin/sift :include #{#".*.clj$"})
-   (builtin/target :dir #{(output-classes-dir)}
-                   :no-clean true)))
-
-(core/deftask deps
-  "Install dependency jars in <build>/WEB-INF/lib"
-  []
-  (println "TASK: libs")
-  (core/with-pre-wrap fileset
-  (let [tmp (core/tmp-dir!)
-        prev (atom nil)
-        jars (pod/jars-in-dep-order (core/get-env))
-        out-dir (doto (io/file lib-dir)
-                  io/make-parents)]
-    (reset! prev fileset)
-    (doseq [jar jars]
-      (let [out-file (io/file out-dir (.getName jar))]
-        ;; (println "Copying jar: " (.getName jar)
-        ;;          " to: " (.getPath out-file))
-        (io/make-parents out-file)
-        (io/copy jar (io/as-file (.getPath out-file)))))
-    fileset)))
-
-#_(core/deftask clj-devx
-  "clojure"
-  []
-  (println "TASK: clj-dev")
-  (core/with-pre-wrap fileset
-  (let [tmp (core/tmp-dir!)
-        prev (atom nil)
-        src (->> fileset
-                 (core/fileset-diff @prev)
-                 core/input-files
-                 (core/not-by-re [#"~$"])
-                 (core/by-ext [".clj"])
-                 #_(map (juxt core/tmp-path core/tmp-file)))]
-    (reset! prev fileset)
-
-    (doseq [f src]
-      (let [p (.getPath (core/tmp-file f))
-            relpath (core/tmp-path f)
-            ;; _ (println "relpath: " relpath (type relpath))
-            of (str gae-app-dir "/WEB-INF/classes" "/" relpath)]
-        (println "Copying " p " to " of)
-        (io/copy (io/as-file p) (io/as-file of))))
-
-    ;;(println "TMP: " tmp)
-    ;; (doseq [in src]
-    ;;   (println "SRC: " in)
-    ;;   (let [in-file  (c/tmp-file in)
-    ;;         in-path  (c/tmp-path in)
-    ;;         out-file (doto (io/file tmp in-path) io/make-parents)]
-    ;;     (compile-lc! in-file out-file)))
-  #_(-> fileset
-      (core/add-resource tmp)
-      core/commit!)
-
-    ;; (dump-props)
-    ;; (dump-env)
-    ;; (println "FILES keys: " (keys fileset))
-    ;; (util/pp* fileset)
-
-    fileset)))
-
- ;; (let [hls (->> fileset
- ;;                     (boot/fileset-diff @prev-fileset)
- ;;                     boot/input-files
- ;;                     (boot/by-ext [file-ext])
- ;;                     (map (juxt boot/tmp-path boot/tmp-file)))]
- ;;        (reset! prev-fileset fileset)
- ;;        (doseq [[p in] hls]
- ;;          (let [out (doto (io/file tmp-files p) io/make-parents)]
- ;;            (->> in slurp (inline-code start end) (spit out)))))
- ;;      (-> fileset (boot/add-source tmp-files)  boot/commit!))))
-
-(core/deftask gae-aot "compile clj" []
-  (println "TASK: gae-aot")
-  ;; (core/with-pre-wrap fileset
-  ;;   (let [fs fileset]
-      (comp
-            (builtin/aot :namespace #{'migae.servlets})
-            (builtin/sift :include #{#".*\.class" #".*\.clj"})
-            (builtin/target :dir #{(output-classes-dir)}
-                            :no-clean true)
-            #_(builtin/sift :add-resource #{"src/main/clojure"}
-                          :include #{#".*~$"}
-                          :invert true)))
-
-;; NB: explode-war comes from the gae gradle plugin - not necessary with boot!
-;; (core/deftask explode-war
-;;   "explode war
-
-;; The default behavior of the War task is to copy the content of src/main/webapp to the root of the archive. Your webapp directory may of course contain a WEB-INF sub-directory, which may contain a web.xml file. Your compiled classes are compiled to WEB-INF/classes. All the dependencies of the runtime [24] configuration are copied to WEB-INF/lib.  https://docs.gradle.org/current/userguide/war_plugin.html"
-;;   []
-;;   )
-
 (defn ->args [param-map]
   (let [r (flatten (for [[k v] param-map]
                       (if (= k :jvm-flags)
@@ -371,7 +164,152 @@
     (println "MERGE: " (pr-str r))
     r))
 
-(def app-cfg-ns "com.google.appengine.tools.admin.AppCfg")
+(defn- find-mainfiles [fs]
+  (->> fs
+       core/input-files
+       (core/by-ext [".clj"])))
+
+
+(defn get-tools-jar []
+  (let [file-sep (System/getProperty "file.separator")
+        ;; _ (println "File Sep: " file-sep)
+        tools-api-jar (str/join file-sep [(:sdk-root config-map) "lib" "appengine-tools-api.jar"])]
+    (if (not (.exists (io/as-file tools-api-jar)))
+      (throw (Exception. (str "Required library 'appengine-tools-api.jar' could not be found in specified path: " tools-api-jar "!"))))
+    tools-api-jar))
+
+(defn validate-tools-api-jar []
+  (let [tools-api-jar (get-tools-jar)
+        path-sep (File/pathSeparator)
+        jcp (System/getProperty java-classpath-sys-prop-key)]
+    #_(if (not (.contains jcp tools-api-jar))
+        (System/setProperty java-classpath-sys-prop-key (str/join path-sep [jcp tools-api-jar])))
+    (System/setProperty java-classpath-sys-prop-key tools-api-jar)
+    #_(println "Java classpath: " (System/getProperty java-classpath-sys-prop-key))
+
+    ;; Adding appengine-tools-api.jar to context ClassLoader
+    (let [;; ClassLoader rootClassLoader = ClassLoader.systemClassLoader.parent
+          root-class-loader (.getParent (ClassLoader/getSystemClassLoader))
+          ;;URLClassLoader appengineClassloader
+          ;;  = new URLClassLoader([new File(appEngineToolsApiJar).toURI().toURL()] as URL[], rootClassLoader)
+          gae-class-loader (let [tools-jar-url [(.toURL (.toURI (io/as-file tools-api-jar)))]]
+                                 (URLClassLoader. (into-array tools-jar-url) root-class-loader))]
+      ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
+      (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
+
+(core/deftask aot
+  "aot compile to <build-dir>/WEB-INF/classes. Also copies .clj files to same dir."
+  [v verbose bool "Print trace messages."]
+  (println "TASK: boot-gae/aot")
+  ;; (println ":build-dir " (:build-dir config-map))
+  ;; (println "classes-dir " (classes-dir))
+  ;;(core/with-pre-wrap fileset
+    (comp
+     (builtin/aot :namespace (:aot config-map)) ;; #{'migae.servlets})
+     (builtin/sift :include #{#".*\.class" #".*\.clj"})
+     (builtin/target :dir #{(classes-dir)}
+                     :no-clean true))
+    ;; fileset)
+)
+
+(core/deftask clj-cp
+  "Copy source .clj files to <build-dir>/WEB-INF/classes"
+  []
+  (println "TASK: boot-gae/clj-cp")
+  (comp (builtin/sift :include #{#".*.clj$"})
+        (builtin/target :dir #{(classes-dir)}
+                        :no-clean true)))
+
+(core/deftask config-servlets
+  "configure gae servlets"
+  [s servlets SERVLETS edn   "Servlets map"
+   f filters FILTERS edn "Filters map"
+   g servlet-ns NS sym "Namespace for gen-class file"
+   v verbose bool "Print trace messages."]
+  (print-task "config" *opts*)
+  (let [opts (merge {:servlet-ns 'gae
+                     :servlets '[gae foo]
+                     :filters '[gae reloader]} *opts*)
+        pfx (str (first (:servlets opts)))
+        nms  (first (rest (:servlets opts)))
+        servlets-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
+                                                                   (str pfx "." (str nm)))}))
+                        {:ns (symbol (str pfx "." (str nms)))})
+
+        pfx (str (first (:filters opts)))
+        nms  (first (rest (:filters opts)))
+        filters-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
+                                                                   (str pfx "." (str nm)))}))
+                        {:ns (symbol (str pfx "." (str nms)))})
+
+        data {:servlets servlets-vec
+              :filters filters-vec
+              :servlet-ns (str (:servlet-ns *opts*))}
+        _ (println "data: " data)
+        content (stencil/render-file "migae/boot_gae/servlets.mustache" data)
+        ]
+    (println "STENCIL: " content)
+    (comp
+     ;; step 1: process template, put result in new Fileset
+     (core/with-pre-wrap fileset
+       (let [tmp-dir (core/tmp-dir!)
+             out-path (str (str/replace (:servlet-ns *opts*) #"\.|-" {"." "/" "-" "_"}) ".clj")
+             _ (println "out-path: " out-path)
+             out-file (doto (io/file tmp-dir out-path) io/make-parents)]
+         (spit out-file content)
+         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
+
+     ;; step 2: the new Fileset contains just the file generated in step 1.  aot compile it.
+     (builtin/aot :namespace #{(:servlet-ns *opts*)})
+
+     ;; step 3: commit new .clj and .class files
+     (builtin/target :dir #{(classes-dir)}
+                     :no-clean true))))
+
+(core/deftask config-xml
+  "configure gae xml config files"
+  [v verbose bool "Print trace messages."]
+  (print-task "config" *opts*)
+
+  ;; TODO: implement defaults
+  (let [opts (merge {:servlet-ns 'gae
+                     :servlets '[gae foo]
+                     :filters '[gae reloader]} config-map)
+        ;; pfx (str (first (:servlets opts)))
+        ;; nms  (first (rest (:servlets opts)))
+        ;; servlets-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
+        ;;                                                            (str pfx "." (str nm)))}))
+        ;;                 {:ns (symbol (str pfx "." (str nms)))})
+
+        ;; pfx (str (first (:filters opts)))
+        ;; nms  (first (rest (:filters opts)))
+        ;; filters-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
+        ;;                                                            (str pfx "." (str nm)))}))
+        ;;                 {:ns (symbol (str pfx "." (str nms)))})
+
+        ;; data {:servlets servlets-vec
+        ;;       :filters filters-vec
+        ;;       :servlet-ns (str (:servlet-ns *opts*))}
+        ;; _ (println "data: " data)
+        content (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
+        ]
+    (println "STENCIL: " content)
+    #_(comp
+     ;; step 1: process template, put result in new Fileset
+     (core/with-pre-wrap fileset
+       (let [tmp-dir (core/tmp-dir!)
+             out-path (str (str/replace (:servlet-ns *opts*) #"\.|-" {"." "/" "-" "_"}) ".clj")
+             _ (println "out-path: " out-path)
+             out-file (doto (io/file tmp-dir out-path) io/make-parents)]
+         (spit out-file content)
+         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
+
+     ;; step 2: the new Fileset contains just the file generated in step 1.  aot compile it.
+     (builtin/aot :namespace #{(:servlet-ns *opts*)})
+
+     ;; step 3: commit new .clj and .class files
+     (builtin/target :dir #{(classes-dir)}
+                     :no-clean true))))
 
 (core/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -407,9 +345,13 @@
    D auto-update-dispatch bool "Include dispatch.yaml in updates"
    _ sdk-help bool "Display SDK help screen"
    v verbose bool          "Print invocation args"]
+  (if (or (:list-tasks config-map) (:verbose config-map))
+    (println "TASK: boot-gae/deploy"))
   (validate-tools-api-jar)
-  (println "PARAMS: " *opts*)
-  (let [opts (merge {:sdk-root (exploded-sdk-dir) :use-java7 true :build-dir "build"}
+  ;; (println "PARAMS: " *opts*)
+  (let [opts (merge {:sdk-root (:sdk-root config-map)
+                     :use-java7 true
+                     :build-dir (:build-dir config-map)}
                     *opts*)
         params (into [] (for [[k v] (remove (comp nil? second)
                                             (dissoc opts :build-dir :verbose :sdk-help))]
@@ -422,25 +364,92 @@
         ;; ClassLoader classLoader = Thread.currentThread().contextClassLoader
         class-loader (-> (Thread/currentThread) (.getContextClassLoader))
         cl (.getParent class-loader)
-        app-cfg (Class/forName app-cfg-ns true class-loader)]
+        app-cfg (Class/forName appcfg-class true class-loader)]
 
   ;; def appCfg = classLoader.loadClass(APPENGINE_TOOLS_MAIN)
   ;; appCfg.main(params as String[])
     (def method (first (filter #(= (. % getName) "main") (. app-cfg getMethods))))
-    (println "MAIN: " method)
-
-    ;; (let [jargs ["--enable_jar_splitting"
-    ;;              (str "--sdk_root=" (exploded-sdk-dir))
-    ;;              "update"]
-    ;;       jargs (into-array String jargs)]
-    ;;   (def invoke-args (into-array Object [jargs]))
-
     (def invoke-args (into-array Object [params]))
-    (if (:verbose *opts*)
-      (doseq [arg params]
-        (println (str "INVOKE ARG: " arg))))
-    (. method invoke nil invoke-args))
+    (if (or (:verbose *opts*) (:verbose config-map))
+      (do (println "CMD: AppCfg")
+          (doseq [arg params]
+            (println "\t" arg))))
+    #_(. method invoke nil invoke-args))
     )
+
+(core/deftask deps
+  "Install dependency jars in <build-dir>/WEB-INF/lib"
+  [v verbose bool "Print traces"]
+  (print-task "deps" *opts*)
+  (core/with-pre-wrap fileset
+    (let [tmp (core/tmp-dir!)
+          prev (atom nil)
+          jars (pod/jars-in-dep-order (core/get-env))
+          _ (println "LIBDIR: " (io/file (lib-dir)))
+          out-dir (doto (io/file tmp (lib-dir))
+                    io/make-parents)]
+      (println "OUTDIR: " out-dir)
+
+      (reset! prev fileset)
+      ;; (doseq [jar jars]
+      ;;   (core/add-asset newfs jar))
+      ;; (println "NEWFS: " (core/user-files newfs))
+      ;; (builtin/show :fileset true)
+      (doseq [jar jars]
+        (let [out-file (io/file out-dir (.getName jar))]
+          (if (or (:verbose *opts*) (:verbose config-map))
+            (println "Copying jar: " (.getName jar)
+                     " to: " (.getPath out-file)))
+          (io/make-parents out-file)
+          (io/copy jar (io/as-file (.getPath out-file)))))
+      (-> fileset (core/add-resource out-dir) core/commit!))))
+
+(core/deftask install-sdk
+  "Unpack and install the SDK zipfile"
+  [v verbose bool "Print trace messages"]
+  ;;NB: java property expected by kickstart is "appengine.sdk.root"
+  (print-task "install-sdk" *opts*)
+  (let [jar-path (pod/resolve-dependency-jar (core/get-env)
+                                             '[com.google.appengine/appengine-java-sdk "1.9.32"
+                                               :extension "zip"])
+                prev        (atom nil)]
+    (core/with-pre-wrap fileset
+      (let [tmpfiles (core/not-by-re [#"~$"] (core/input-files fileset))
+            ;; _ (doseq [tf tmpfiles] (println (core/tmp-file tf)))
+            src (->> fileset
+                     (core/fileset-diff @prev)
+                     core/input-files
+                     (core/by-ext [".clj"]))
+            sdk-dir (io/as-file (:sdk-root config-map))]
+            ;; sdk-dir (io/as-file (util/dosh "sh" "-c" "echo" (:sdk-root config-map)))]
+        (reset! prev fileset)
+        (if (.exists sdk-dir)
+          (do
+            (let [file-sep (System/getProperty "file.separator")
+                  tools-api-jar (str/join file-sep [(:sdk-root config-map) "lib" "appengine-tools-api.jar"])]
+              (if (not (.exists (io/as-file tools-api-jar)))
+                (do
+                  (println "Found sdk-dir but not its contents; re-exploding")
+                  (core/empty-dir! sdk-dir)
+                  (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
+                  (pod/unpack-jar jar-path (.getParent sdk-dir)))
+                (if (or (:verbose *opts*) (:verbose config-map))
+                  (println "SDK already installed at: " (.getPath sdk-dir))))))
+          (do
+            (if (or (:verbose *opts*) (:verbose config-map))
+              (println "Installing unpacked SDK to: " (.getPath sdk-dir)))
+            (pod/unpack-jar jar-path (.getParent sdk-dir))))
+    fileset))))
+
+(core/deftask webapp
+  "copy assets to build-dir"
+  [v verbose bool "Print trace messages"]
+  (print-task "webapp" *opts*)
+  (comp
+   (builtin/sift :include #{#".*.clj$"}
+                 :invert true)
+   (builtin/target :dir #{(:build-dir config-map)}
+                   :no-clean true)))
 
 (core/deftask run
   "Run devappserver"
@@ -490,7 +499,7 @@
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
           jargs ["com.google.appengine.tools.development.DevAppServerMain"
-                 (str "--sdk_root=" (exploded-sdk-dir))
+                 (str "--sdk_root=" (:sdk-root config-map))
                  (gae-app-dir)]
           jargs (into-array String jargs)]
 
@@ -534,29 +543,63 @@
 
     ))))
 
+#_(core/deftask clj-cp
+  "Copy files from the fileset to another directory.
+  Example: (copy jar files to /home/foo/jars):
+     $ boot build copy -m '\\.jar$' -o /home/foo/jars"
+  [o output-dir PATH str     "The output directory path."
+   m matching REGEX #{regex} "The set of regexes matching paths to backup."]
+  (println "TASK: clj-cp")
+  (let [out-dir (if output-dir (io/file output-dir) (classes-dir))
+        matching (if matching matching #{#"\.clj$"})]
+    (core/with-pre-wrap fileset
+      (let [in-files (->> fileset
+                          core/input-files
+                          (core/by-re matching)
+                          (map (juxt core/tmp-path core/tmp-file)))]
+        (doseq [[path in-file] in-files]
+          (let [out-file (doto (io/file out-dir path) io/make-parents)]
+            (util/info "Copying %s to %s...\n" path out-dir)
+            (io/copy in-file out-file)))
+        fileset))))
 
-  ;; In AppEnginePlugin.groovy:
-    ;; static File getExplodedSdkDirectory(Project project) {
-    ;;     new File(project.gradle.gradleUserHomeDir, 'appengine-sdk')
-    ;; static File getExplodedAppDirectory(Project project) {
-    ;;     getBuildSubDirectory(project, 'exploded-app')
-    ;; static File getStagedAppDirectory(Project project) {
-    ;;     getBuildSubDirectory(project, "staged-app")
-    ;; static File getDownloadedAppDirectory(Project project) {
-    ;;     getBuildSubDirectory(project, 'downloaded-app')
-    ;; static File getDiscoveryDocDirectory(Project project) {
-    ;;     getBuildSubDirectory(project, 'discovery-docs')
-    ;; static File getEndpointsClientLibDirectory(Project project) {
-    ;;     getBuildSubDirectory(project, 'client-libs')
-    ;; static File getGenDir(Project project) {
-    ;;     getBuildSubDirectory(project, 'generated-source')
-    ;; static File getEndpointsExpandedSrcDir(Project project) {
-    ;;     new File(getGenDir(project),'endpoints/java')
-    ;; static File getBuildSubDirectory(Project project, String subDirectory) {
-    ;;     def subDir = new StringBuilder()
-    ;;     subDir <<= project.buildDir
-    ;;     subDir <<= System.getProperty('file.separator')
-    ;;     subDir <<= subDirectory
-    ;;     new File(subDir.toString())
+#_(core/deftask clj-devx
+  "clojure"
+  []
+  (println "TASK: clj-dev")
+  (core/with-pre-wrap fileset
+  (let [tmp (core/tmp-dir!)
+        prev (atom nil)
+        src (->> fileset
+                 (core/fileset-diff @prev)
+                 core/input-files
+                 (core/not-by-re [#"~$"])
+                 (core/by-ext [".clj"])
+                 #_(map (juxt core/tmp-path core/tmp-file)))]
+    (reset! prev fileset)
 
-  ;; )
+    (doseq [f src]
+      (let [p (.getPath (core/tmp-file f))
+            relpath (core/tmp-path f)
+            ;; _ (println "relpath: " relpath (type relpath))
+            of (str gae-app-dir "/WEB-INF/classes" "/" relpath)]
+        (println "Copying " p " to " of)
+        (io/copy (io/as-file p) (io/as-file of))))
+
+    ;;(println "TMP: " tmp)
+    ;; (doseq [in src]
+    ;;   (println "SRC: " in)
+    ;;   (let [in-file  (c/tmp-file in)
+    ;;         in-path  (c/tmp-path in)
+    ;;         out-file (doto (io/file tmp in-path) io/make-parents)]
+    ;;     (compile-lc! in-file out-file)))
+  #_(-> fileset
+      (core/add-resource tmp)
+      core/commit!)
+
+    ;; (dump-props)
+    ;; (dump-env)
+    ;; (println "FILES keys: " (keys fileset))
+    ;; (util/pp* fileset)
+
+    fileset)))

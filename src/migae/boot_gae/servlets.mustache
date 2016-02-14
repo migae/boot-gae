@@ -1,0 +1,14 @@
+(ns {{servlet-ns}}
+  (:refer-clojure))
+
+{{#servlets}}
+(gen-class :name {{ns}}
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns {{ns}})
+{{/servlets}}
+
+{{#filters}}
+(gen-class :name {{ns}}
+           :implements [javax.servlet.Filter]
+           :impl-ns {{ns}})
+{{/filters}}

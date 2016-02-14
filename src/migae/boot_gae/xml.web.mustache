@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<web-app xmlns="http://java.sun.com/xml/ns/javaee"
+	 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	 version="2.5"
+	 xsi:schemaLocation="http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd">
+
+  {{#display-name}}
+  <display-name>{{name}}</display-name>
+  {{/display-name}}
+
+  {{#descr}}
+  <description>{{text}}</description>
+  {{/descr}}
+
+  <!-- #################### -->
+  {{#filters}}
+  <filter-mapping>
+    <url-pattern>{{url}}</url-pattern>
+    <filter-name>{{name}}</filter-name>
+  </filter-mapping>
+  <filter>
+    <filter-name>{{name}}</filter-name>
+    {{#display}}
+    <display-name>{{name}}</display-name>
+    {{/display}}
+    {{#desc}}
+    <description>{{text}}</description>
+    {{/desc}}
+    <filter-class>{{ns}}</filter-class>
+    {{#params}}
+    <init-param>
+      <param-name>{{name}}</param-name>
+      <param-value>{{val}}</param-value>
+    </init-param>
+    {{/params}}
+  </filter>
+  {{/filters}}
+
+  <!-- #################### -->
+  {{#servlets}}
+  <servlet-mapping>
+    <url-pattern>{{url}}</url-pattern>
+    <servlet-name>{{name}}</servlet-name>
+  </servlet-mapping>
+  <servlet>
+    <servlet-name>{{name}}</servlet-name>
+    <servlet-class>{{ns}}</servlet-class>
+    {{#display}}
+    <display-name>{{name}}</display-name>
+    {{/display}}
+    {{#desc}}
+    <description>{{text}}</description>
+    {{/desc}}
+    {{#params}}
+    <init-param>
+      <param-name>{{name}}</param-name>
+      <param-value>{{val}}</param-value>
+    </init-param>
+    {{/params}}
+    {{#load-on-startup}}
+    <load-on-startup>{{order}}</load-on-startup>
+    {{/load-on-startup}}
+  </servlet>
+
+  {{/servlets}}
+
+  <!-- ################ -->
+  {{#security}}
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>{{resource.name}}</web-resource-name>
+      <url-pattern>{{resource.url}}</url-pattern>
+      {{#desc}}
+      <url-pattern>{{desc.text}}</url-pattern>
+      {{/desc}}
+      {{#methods}}
+      <http-method>{{method}}</http-method>
+      {{/methods}}
+    </web-resource-collection>
+    <auth-constraint>
+      <role-name>{{role}}</role-name>
+    </auth-constraint>
+  </security-constraint>
+  {{/security}}
+
+  {{#welcome}}
+  <!-- #################### -->
+  <welcome-file-list>
+    <welcome-file>{{file}}</welcome-file>
+  </welcome-file-list>
+  {{/welcome}}
+
+  {{#errors}}
+  <!-- #################### -->
+  <error-page>
+    <error-code>{{code}}</error-code>
+    <location>{{url}}</location>
+  </error-page>
+
+  {{/errors}}
+
+</web-app>
