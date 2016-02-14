@@ -275,40 +275,21 @@
   (let [opts (merge {:servlet-ns 'gae
                      :servlets '[gae foo]
                      :filters '[gae reloader]} config-map)
-        ;; pfx (str (first (:servlets opts)))
-        ;; nms  (first (rest (:servlets opts)))
-        ;; servlets-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
-        ;;                                                            (str pfx "." (str nm)))}))
-        ;;                 {:ns (symbol (str pfx "." (str nms)))})
-
-        ;; pfx (str (first (:filters opts)))
-        ;; nms  (first (rest (:filters opts)))
-        ;; filters-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
-        ;;                                                            (str pfx "." (str nm)))}))
-        ;;                 {:ns (symbol (str pfx "." (str nms)))})
-
-        ;; data {:servlets servlets-vec
-        ;;       :filters filters-vec
-        ;;       :servlet-ns (str (:servlet-ns *opts*))}
-        ;; _ (println "data: " data)
-        content (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
+        web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
+        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
         ]
-    (println "STENCIL: " content)
-    #_(comp
+    (println "STENCIL: " appengine-xml)
+    (comp
      ;; step 1: process template, put result in new Fileset
      (core/with-pre-wrap fileset
        (let [tmp-dir (core/tmp-dir!)
-             out-path (str (str/replace (:servlet-ns *opts*) #"\.|-" {"." "/" "-" "_"}) ".clj")
-             _ (println "out-path: " out-path)
+             out-path "web.xml"
              out-file (doto (io/file tmp-dir out-path) io/make-parents)]
-         (spit out-file content)
+         (spit out-file web-xml)
          (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
 
-     ;; step 2: the new Fileset contains just the file generated in step 1.  aot compile it.
-     (builtin/aot :namespace #{(:servlet-ns *opts*)})
-
-     ;; step 3: commit new .clj and .class files
-     (builtin/target :dir #{(classes-dir)}
+     ;; step 3: commit new .xml
+     (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
                      :no-clean true))))
 
 (core/deftask deploy
