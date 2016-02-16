@@ -1,0 +1,26 @@
+# A default java.util.logging configuration.
+# (All App Engine logging is through java.util.logging by default).
+#
+# To use this configuration, copy it into your application's WEB-INF
+# folder and add the following to your appengine-web.xml:
+# 
+# <system-properties>
+#   <property name="java.util.logging.config.file" value="WEB-INF/logging.properties"/>
+# </system-properties>
+#
+
+# See "Using the JRE Logging Configuration File"
+# at https://docs.oracle.com/cd/E19717-01/819-7753/gcblo/index.html
+
+# java.util.logging.Level: the levels in descending order are:
+
+# SEVERE (highest value)
+# WARNING
+# INFO
+# CONFIG
+# FINE
+# FINER
+# FINEST (lowest value)
+
+# Set the default logging level for all loggers to ALL
+.level = INFO

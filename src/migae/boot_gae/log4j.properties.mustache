@@ -1,0 +1,15 @@
+log4j.rootLogger=DEBUG, console
+log4j.appender.console=org.apache.log4j.ConsoleAppender
+log4j.appender.console.encoding=UTF-8
+log4j.appender.console.layout=org.apache.log4j.EnhancedPatternLayout
+log4j.appender.console.layout.ConversionPattern=%d{ISO8601}  %c%n%p: %m%n
+
+{{#servlets}}
+log4j.logger.{{ns}}=INFO, {{name}}
+log4j.additivity.{{ns}}=false
+log4j.appender.{{name}}.encoding=UTF-8
+log4j.appender.{{name}}=org.apache.log4j.ConsoleAppender
+log4j.appender.{{name}}.layout=org.apache.log4j.EnhancedPatternLayout
+log4j.appender.{{name}}.layout.ConversionPattern=%d{ISO8601}  %c%n%p: %m%n
+{{/servlets}}
+

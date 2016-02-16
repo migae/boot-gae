@@ -155,4 +155,11 @@
 
   {{/errors}}
 
+  {{#appengine.mime-mappings}}
+  <mime-mapping>
+    <extension>{{ext}}</extension>
+    <mime-type>{{type}}</mime-type>
+  </mime-mapping>
+  {{/appengine.mime-mappings}}
+
 </web-app>

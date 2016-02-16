@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [clojure.set :as set]
             [stencil.core :as stencil]
+            [boot.user]
             [boot.pod :as pod]
             [boot.core :as core]
             [boot.util :as util]
@@ -41,9 +42,14 @@
                                                               (if (= k :sdk-root)
                                                                 (str (expand-home v) "/" sdk-string)
                                                                 v)))
-                               {} (:gae (core/get-env)))))
+                               {} boot.user/gae)))
+                               ;; {} (:gae (core/get-env)))))
 
-(defn classes-dir [] (str (:build-dir config-map) "/WEB-INF/classes"))
+(def web-inf-dir (str (:build-dir config-map) "/WEB-INF"))
+(println "web-inf-dir: " web-inf-dir)
+(println "build-dir: " (:build-dir config-map))
+(def classes-dir (str web-inf-dir "/classes"))
+(println "classes-dir: " classes-dir)
 
 (defn lib-dir [] (str (:build-dir config-map) "/WEB-INF/lib"))
 
@@ -76,7 +82,7 @@
 (defn dump-props []
   (println "project-dir: " project-dir)
   (println "build-dir: " build-dir)
-  (println "classes-dir: " (classes-dir))
+  (println "classes-dir: " classes-dir)
   (println "output-resources-dir: " (output-resources-dir nil))
   (println "java-source-dir: " (java-source-dir nil))
   (println "input-resources-dir: " (input-resources-dir nil))
@@ -197,74 +203,122 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-(core/deftask aot
-  "aot compile to <build-dir>/WEB-INF/classes. Also copies .clj files to same dir."
-  [v verbose bool "Print trace messages."]
-  (println "TASK: boot-gae/aot")
-  ;; (println ":build-dir " (:build-dir config-map))
-  ;; (println "classes-dir " (classes-dir))
-  ;;(core/with-pre-wrap fileset
-    (comp
-     (builtin/aot :namespace (:aot config-map)) ;; #{'migae.servlets})
-     (builtin/sift :include #{#".*\.class" #".*\.clj"})
-     (builtin/target :dir #{(classes-dir)}
-                     :no-clean true))
-    ;; fileset)
-)
+(core/deftask foo "" []
+  (core/with-pre-wrap [fs]
+    (println "FS: " (type fs))
+    (let [asset-files (->> fs core/output-files (core/by-ext [".clj"]))]
+         (doseq [asset asset-files] (println "foo" asset)))
+    fs))
 
-(core/deftask clj-cp
+;;(assoc fs :input-files (merge (:input-files fs) {"WEB-INF/classes/foo/bar.clj" "foo/bar.clj"}))
+
+(core/deftask XassetsX
+  "copy assets to build-dir"
+  [v verbose bool "Print trace messages"]
+  (core/with-pre-wrap [fs]
+    (let [tgt (core/tmp-dir!)
+          in-files (->> fs
+                        core/output-files
+                        (core/not-by-ext [".clj"])
+                        (map (juxt core/tmp-path core/tmp-file)))]
+      (doseq [[rel-path in-file] in-files]
+        (let [out-file (doto (io/file tgt (str rel-path "/foo")) io/make-parents)]
+          (println "     in-file: " in-file)
+          (println "tmp out-file: " out-file)
+          (core/cp fs in-file out-file)))
+      (core/add-asset fs tgt)
+      (core/commit! fs))))
+
+(core/deftask assets
+  "copy assets to build-dir"
+  [v verbose bool "Print trace messages"
+   t type TYPE kw "type to move"
+   o odir ODIR str "output dir"]
+(let [regex (re-pattern (condp = type
+                          :clj  #"(.*clj$)"
+                          :cljs  #"(.*cljs$)"
+                          :css  #"(.*css$)"
+                          :html #"(.*html$)"
+                          :ico  #"(.*ico$)"
+                          :js  #"(.*js$)"
+                          ""))
+        dest (if odir odir "WEB-INF")
+        arg {regex (str dest "/$1")}]
+    (builtin/sift :move arg)))
+
+#_(core/deftask clj-cp
   "Copy source .clj files to <build-dir>/WEB-INF/classes"
   []
   (println "TASK: boot-gae/clj-cp")
   (comp (builtin/sift :include #{#".*.clj$"})
-        (builtin/target :dir #{(classes-dir)}
+        (builtin/target :dir #{classes-dir}
                         :no-clean true)))
+
+(core/deftask logging
+  "configure gae logging"
+  [l log LOG kw ":log4j or :jul"
+   v verbose bool "Print trace messages."
+   o odir ODIR str "output dir"]
+  (print-task "logging" *opts*)
+  (let [content (stencil/render-file
+                 (if (= log :log4j)
+                   "migae/boot_gae/log4j.properties.mustache"
+                   "migae/boot_gae/logging.properties.mustache")
+                   config-map)
+        odir (if odir odir
+                 (condp = log
+                   :jul web-inf-dir
+                   :log4j classes-dir
+                   nil (:build-dir config-map)
+                   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
+        out-path (condp = log
+                   :log4j "log4j.properties"
+                   :jul "logging.properties"
+                   nil  "logging.properties")
+        mv-arg {(re-pattern out-path) (str odir "/$1")}]
+    ;; (println "STENCIL: " content)
+    (println "mv pattern: " mv-arg)
+    (comp
+     (core/with-pre-wrap fs
+       (let [tmp-dir (core/tmp-dir!)
+             _ (println "odir: " odir)
+             out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
+         (spit out-file content)
+         (-> fs (core/add-resource tmp-dir) core/commit!))))))
+
+     ;; (builtin/sift :move mv-arg))))
+
+     ;; (builtin/target :dir #{(if (= log :log4j)
+     ;;                          classes-dir
+     ;;                          (str (:build-dir config-map) "/WEB-INF"))}
+     ;;                 :no-clean true))))
 
 (core/deftask config-servlets
   "configure gae servlets"
-  [s servlets SERVLETS edn   "Servlets map"
-   f filters FILTERS edn "Filters map"
-   g servlet-ns NS sym "Namespace for gen-class file"
+  [s clj bool "Save intermediate generated .clj file"
    v verbose bool "Print trace messages."]
-  (print-task "config" *opts*)
-  (let [opts (merge {:servlet-ns 'gae
-                     :servlets '[gae foo]
-                     :filters '[gae reloader]} *opts*)
-        pfx (str (first (:servlets opts)))
-        nms  (first (rest (:servlets opts)))
-        servlets-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
-                                                                   (str pfx "." (str nm)))}))
-                        {:ns (symbol (str pfx "." (str nms)))})
-
-        pfx (str (first (:filters opts)))
-        nms  (first (rest (:filters opts)))
-        filters-vec (if (vector? nms) (into [] (for [nm nms] {:ns (symbol
-                                                                   (str pfx "." (str nm)))}))
-                        {:ns (symbol (str pfx "." (str nms)))})
-
-        data {:servlets servlets-vec
-              :filters filters-vec
-              :servlet-ns (str (:servlet-ns *opts*))}
-        _ (println "data: " data)
-        content (stencil/render-file "migae/boot_gae/servlets.mustache" data)
-        ]
+  (print-task "config-servlets" *opts*)
+  (let [content (stencil/render-file "migae/boot_gae/servlets.mustache" config-map)
+        servlet-ns (:servlet-ns config-map)]
     (println "STENCIL: " content)
+    ;;(builtin/show :fileset true)
     (comp
      ;; step 1: process template, put result in new Fileset
      (core/with-pre-wrap fileset
        (let [tmp-dir (core/tmp-dir!)
-             out-path (str (str/replace (:servlet-ns *opts*) #"\.|-" {"." "/" "-" "_"}) ".clj")
+             out-path (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")
              _ (println "out-path: " out-path)
-             out-file (doto (io/file tmp-dir out-path) io/make-parents)]
+             out-file (doto (io/file tmp-dir out-path) io/make-parents)
+             ]
          (spit out-file content)
-         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
-
-     ;; step 2: the new Fileset contains just the file generated in step 1.  aot compile it.
-     (builtin/aot :namespace #{(:servlet-ns *opts*)})
-
-     ;; step 3: commit new .clj and .class files
-     (builtin/target :dir #{(classes-dir)}
-                     :no-clean true))))
+         (-> fileset (core/add-resource tmp-dir) core/commit!)))
+     (builtin/aot :namespace #{(:servlet-ns config-map)})
+     (builtin/sift :include (if clj #{#".*\.class"  #"\.clj$"} #{#"\.class$"}))
+     (builtin/target :dir #{classes-dir}
+                     :no-clean false)
+       #_(builtin/show :fileset true)
+       #_(core/reset-fileset fileset)
+       #_fileset)))
 
 (core/deftask config-xml
   "configure gae xml config files"
@@ -272,13 +326,9 @@
   (print-task "config" *opts*)
 
   ;; TODO: implement defaults
-  (let [opts (merge {:servlet-ns 'gae
-                     :servlets '[gae foo]
-                     :filters '[gae reloader]} config-map)
-        web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
-        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
-        ]
-    (println "STENCIL: " web-xml)
+  (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
+        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)]
+    ;; (println "STENCIL: " web-xml)
     (comp
      ;; step 1: process template, put result in new Fileset
      (core/with-pre-wrap fileset
@@ -366,28 +416,12 @@
   "Install dependency jars in <build-dir>/WEB-INF/lib"
   [v verbose bool "Print traces"]
   (print-task "deps" *opts*)
-  (core/with-pre-wrap fileset
-    (let [tmp (core/tmp-dir!)
-          prev (atom nil)
-          jars (pod/jars-in-dep-order (core/get-env))
-          _ (println "LIBDIR: " (io/file (lib-dir)))
-          out-dir (doto (io/file tmp (lib-dir))
-                    io/make-parents)]
-      (println "OUTDIR: " out-dir)
-
-      (reset! prev fileset)
-      ;; (doseq [jar jars]
-      ;;   (core/add-asset newfs jar))
-      ;; (println "NEWFS: " (core/user-files newfs))
-      ;; (builtin/show :fileset true)
-      (doseq [jar jars]
-        (let [out-file (io/file out-dir (.getName jar))]
-          (if (or (:verbose *opts*) (:verbose config-map))
-            (println "Copying jar: " (.getName jar)
-                     " to: " (.getPath out-file)))
-          (io/make-parents out-file)
-          (io/copy jar (io/as-file (.getPath out-file)))))
-      (-> fileset (core/add-resource out-dir) core/commit!))))
+  (println "libdir" (lib-dir))
+  (comp (builtin/uber :as-jars true)
+        (builtin/sift :include #{#"jar$"})
+        (builtin/target :dir #{(lib-dir)}
+                        :no-clean true)))
+;;  (core/reset-fileset))
 
 (core/deftask install-sdk
   "Unpack and install the SDK zipfile"
@@ -397,44 +431,26 @@
   (let [jar-path (pod/resolve-dependency-jar (core/get-env)
                                              '[com.google.appengine/appengine-java-sdk "1.9.32"
                                                :extension "zip"])
-                prev        (atom nil)]
+        sdk-dir (io/as-file (:sdk-root config-map))
+        prev        (atom nil)]
     (core/with-pre-wrap fileset
-      (let [tmpfiles (core/not-by-re [#"~$"] (core/input-files fileset))
-            ;; _ (doseq [tf tmpfiles] (println (core/tmp-file tf)))
-            src (->> fileset
-                     (core/fileset-diff @prev)
-                     core/input-files
-                     (core/by-ext [".clj"]))
-            sdk-dir (io/as-file (:sdk-root config-map))]
-            ;; sdk-dir (io/as-file (util/dosh "sh" "-c" "echo" (:sdk-root config-map)))]
-        (reset! prev fileset)
-        (if (.exists sdk-dir)
-          (do
-            (let [file-sep (System/getProperty "file.separator")
-                  tools-api-jar (str/join file-sep [(:sdk-root config-map) "lib" "appengine-tools-api.jar"])]
-              (if (not (.exists (io/as-file tools-api-jar)))
-                (do
-                  (println "Found sdk-dir but not its contents; re-exploding")
-                  (core/empty-dir! sdk-dir)
-                  (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
-                  (pod/unpack-jar jar-path (.getParent sdk-dir)))
-                (if (or (:verbose *opts*) (:verbose config-map))
-                  (println "SDK already installed at: " (.getPath sdk-dir))))))
-          (do
-            (if (or (:verbose *opts*) (:verbose config-map))
-              (println "Installing unpacked SDK to: " (.getPath sdk-dir)))
-            (pod/unpack-jar jar-path (.getParent sdk-dir))))
-    fileset))))
-
-(core/deftask webapp
-  "copy assets to build-dir"
-  [v verbose bool "Print trace messages"]
-  (print-task "webapp" *opts*)
-  (comp
-   (builtin/sift :include #{#".*.clj$"}
-                 :invert true)
-   (builtin/target :dir #{(:build-dir config-map)}
-                   :no-clean true)))
+      (if (.exists sdk-dir)
+        (do
+          (let [file-sep (System/getProperty "file.separator")
+                tools-api-jar (str/join file-sep [(:sdk-root config-map) "lib" "appengine-tools-api.jar"])]
+            (if (not (.exists (io/as-file tools-api-jar)))
+              (do
+                (println "Found sdk-dir but not its contents; re-exploding")
+                (core/empty-dir! sdk-dir)
+                (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
+                (pod/unpack-jar jar-path (.getParent sdk-dir)))
+              (if (or (:verbose *opts*) (:verbose config-map))
+                (println "SDK already installed at: " (.getPath sdk-dir))))))
+        (do
+          (if (or (:verbose *opts*) (:verbose config-map))
+            (println "Installing unpacked SDK to: " (.getPath sdk-dir)))
+          (pod/unpack-jar jar-path (.getParent sdk-dir))))
+      fileset)))
 
 (core/deftask run
   "Run devappserver"
@@ -528,63 +544,20 @@
 
     ))))
 
-#_(core/deftask clj-cp
-  "Copy files from the fileset to another directory.
-  Example: (copy jar files to /home/foo/jars):
-     $ boot build copy -m '\\.jar$' -o /home/foo/jars"
-  [o output-dir PATH str     "The output directory path."
-   m matching REGEX #{regex} "The set of regexes matching paths to backup."]
-  (println "TASK: clj-cp")
-  (let [out-dir (if output-dir (io/file output-dir) (classes-dir))
-        matching (if matching matching #{#"\.clj$"})]
-    (core/with-pre-wrap fileset
-      (let [in-files (->> fileset
-                          core/input-files
-                          (core/by-re matching)
-                          (map (juxt core/tmp-path core/tmp-file)))]
-        (doseq [[path in-file] in-files]
-          (let [out-file (doto (io/file out-dir path) io/make-parents)]
-            (util/info "Copying %s to %s...\n" path out-dir)
-            (io/copy in-file out-file)))
-        fileset))))
-
-#_(core/deftask clj-devx
-  "clojure"
-  []
-  (println "TASK: clj-dev")
-  (core/with-pre-wrap fileset
-  (let [tmp (core/tmp-dir!)
-        prev (atom nil)
-        src (->> fileset
-                 (core/fileset-diff @prev)
-                 core/input-files
-                 (core/not-by-re [#"~$"])
-                 (core/by-ext [".clj"])
-                 #_(map (juxt core/tmp-path core/tmp-file)))]
-    (reset! prev fileset)
-
-    (doseq [f src]
-      (let [p (.getPath (core/tmp-file f))
-            relpath (core/tmp-path f)
-            ;; _ (println "relpath: " relpath (type relpath))
-            of (str gae-app-dir "/WEB-INF/classes" "/" relpath)]
-        (println "Copying " p " to " of)
-        (io/copy (io/as-file p) (io/as-file of))))
-
-    ;;(println "TMP: " tmp)
-    ;; (doseq [in src]
-    ;;   (println "SRC: " in)
-    ;;   (let [in-file  (c/tmp-file in)
-    ;;         in-path  (c/tmp-path in)
-    ;;         out-file (doto (io/file tmp in-path) io/make-parents)]
-    ;;     (compile-lc! in-file out-file)))
-  #_(-> fileset
-      (core/add-resource tmp)
-      core/commit!)
-
-    ;; (dump-props)
-    ;; (dump-env)
-    ;; (println "FILES keys: " (keys fileset))
-    ;; (util/pp* fileset)
-
-    fileset)))
+(core/deftask stencil
+  "Process stencil templates"
+  [s stencil STENCIL str "Path to a stencil (mustache) template. Must be on classpath."
+   d data DATA edn "A data map."
+   o outpath OUTPATH str "File path for output."
+   v verbose bool "Print trace messages."]
+  (print-task "stencil" *opts*)
+  (let [content (stencil/render-file stencil data)]
+    ;; (println "STENCIL: " content)
+    (comp
+     ;; step 1: process template, put result in new Fileset
+     (core/with-pre-wrap fileset
+       (let [tmp-dir (core/tmp-dir!)
+             ;; out-path (str (str/replace outpath #"\.|-" {"." "/" "-" "_"}))
+             out-file (doto (io/file tmp-dir outpath) io/make-parents)]
+         (spit out-file content)
+         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!))))))

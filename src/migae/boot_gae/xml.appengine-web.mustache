@@ -53,21 +53,23 @@
   </static-files>
   {{/appengine.static-files}}
 
-  {{#appengine.mime-mappings}}
-  <mime-mapping>
-    <extension>{{ext}}</extension>
-    <mime-type>{{type}}</mime-type>
-  </mime-mapping>
-  {{/appengine.mime-mappings}}
-
   {{#appengine.system-properties}}
   <system-properties>
     {{#props}}
     <property name="{{name}}"
 	      value="{{value}}" />
     {{/props}}
+    {{#appengine.logging.jul}}
+    <property name="{{name}}"
+	      value="{{value}}" />
+    {{/appengine.logging.jul}}
+    {{#appengine.logging.log4j}}
+    <property name="{{name}}"
+	      value="{{value}}" />
+    {{/appengine.logging.log4j}}
   </system-properties>
   {{/appengine.system-properties}}
+
 
   <env-variables>
     {{#appengine.env-vars}}
