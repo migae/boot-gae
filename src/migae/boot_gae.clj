@@ -8,8 +8,7 @@
             [boot.pod :as pod]
             [boot.core :as core]
             [boot.util :as util]
-            [boot.task.built-in :as builtin]
-            )
+            [boot.task.built-in :as builtin])
   (:import [com.google.appengine.tools KickStart]
            [java.io File]
            [java.net URL URLClassLoader]))
@@ -45,13 +44,12 @@
                                {} boot.user/gae)))
                                ;; {} (:gae (core/get-env)))))
 
-(def web-inf-dir (str (:build-dir config-map) "/WEB-INF"))
-(println "web-inf-dir: " web-inf-dir)
-(println "build-dir: " (:build-dir config-map))
-(def classes-dir (str web-inf-dir "/classes"))
-(println "classes-dir: " classes-dir)
+;;(str (:build-dir config-map)
+(def web-inf-dir "WEB-INF")
 
-(defn lib-dir [] (str (:build-dir config-map) "/WEB-INF/lib"))
+(def classes-dir (str web-inf-dir "/classes"))
+
+(defn lib-dir [] "WEB-INF/lib")
 
 (def appcfg-class "com.google.appengine.tools.admin.AppCfg")
 
@@ -203,31 +201,12 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-(core/deftask foo "" []
+#_(core/deftask foo "" []
   (core/with-pre-wrap [fs]
     (println "FS: " (type fs))
     (let [asset-files (->> fs core/output-files (core/by-ext [".clj"]))]
          (doseq [asset asset-files] (println "foo" asset)))
     fs))
-
-;;(assoc fs :input-files (merge (:input-files fs) {"WEB-INF/classes/foo/bar.clj" "foo/bar.clj"}))
-
-(core/deftask XassetsX
-  "copy assets to build-dir"
-  [v verbose bool "Print trace messages"]
-  (core/with-pre-wrap [fs]
-    (let [tgt (core/tmp-dir!)
-          in-files (->> fs
-                        core/output-files
-                        (core/not-by-ext [".clj"])
-                        (map (juxt core/tmp-path core/tmp-file)))]
-      (doseq [[rel-path in-file] in-files]
-        (let [out-file (doto (io/file tgt (str rel-path "/foo")) io/make-parents)]
-          (println "     in-file: " in-file)
-          (println "tmp out-file: " out-file)
-          (core/cp fs in-file out-file)))
-      (core/add-asset fs tgt)
-      (core/commit! fs))))
 
 (core/deftask assets
   "copy assets to build-dir"
@@ -242,7 +221,7 @@
                           :ico  #"(.*ico$)"
                           :js  #"(.*js$)"
                           ""))
-        dest (if odir odir "WEB-INF")
+        dest (if odir odir "./")
         arg {regex (str dest "/$1")}]
     (builtin/sift :move arg)))
 
@@ -269,7 +248,7 @@
                  (condp = log
                    :jul web-inf-dir
                    :log4j classes-dir
-                   nil (:build-dir config-map)
+                   nil web-inf-dir
                    (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
         out-path (condp = log
                    :log4j "log4j.properties"
@@ -277,7 +256,7 @@
                    nil  "logging.properties")
         mv-arg {(re-pattern out-path) (str odir "/$1")}]
     ;; (println "STENCIL: " content)
-    (println "mv pattern: " mv-arg)
+    ;; (println "mv pattern: " mv-arg)
     (comp
      (core/with-pre-wrap fs
        (let [tmp-dir (core/tmp-dir!)
@@ -293,58 +272,33 @@
      ;;                          (str (:build-dir config-map) "/WEB-INF"))}
      ;;                 :no-clean true))))
 
-(core/deftask config-servlets
-  "configure gae servlets"
-  [s clj bool "Save intermediate generated .clj file"
-   v verbose bool "Print trace messages."]
-  (print-task "config-servlets" *opts*)
-  (let [content (stencil/render-file "migae/boot_gae/servlets.mustache" config-map)
-        servlet-ns (:servlet-ns config-map)]
-    (println "STENCIL: " content)
-    ;;(builtin/show :fileset true)
-    (comp
-     ;; step 1: process template, put result in new Fileset
-     (core/with-pre-wrap fileset
-       (let [tmp-dir (core/tmp-dir!)
-             out-path (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")
-             _ (println "out-path: " out-path)
-             out-file (doto (io/file tmp-dir out-path) io/make-parents)
-             ]
-         (spit out-file content)
-         (-> fileset (core/add-resource tmp-dir) core/commit!)))
-     (builtin/aot :namespace #{(:servlet-ns config-map)})
-     (builtin/sift :include (if clj #{#".*\.class"  #"\.clj$"} #{#"\.class$"}))
-     (builtin/target :dir #{classes-dir}
-                     :no-clean false)
-       #_(builtin/show :fileset true)
-       #_(core/reset-fileset fileset)
-       #_fileset)))
-
-(core/deftask config-xml
+(core/deftask config
   "configure gae xml config files"
-  [v verbose bool "Print trace messages."]
+  [d dir DIR str "output dir"
+   v verbose bool "Print trace messages."]
   (print-task "config" *opts*)
 
   ;; TODO: implement defaults
   (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
-        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)]
+        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
+        odir (if dir dir web-inf-dir)]
     ;; (println "STENCIL: " web-xml)
     (comp
      ;; step 1: process template, put result in new Fileset
      (core/with-pre-wrap fileset
        (let [tmp-dir (core/tmp-dir!)
-             web-xml-out-path "web.xml"
+             web-xml-out-path (str odir "/web.xml")
              web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
-             appengine-xml-out-path "appengine-web.xml"
+             appengine-xml-out-path (str odir "/appengine-web.xml")
              appengine-xml-out-file (doto (io/file tmp-dir appengine-xml-out-path) io/make-parents)
              ]
          (spit web-xml-out-file web-xml)
          (spit appengine-xml-out-file appengine-xml)
-         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!)))
+         (-> fileset (core/add-resource tmp-dir) core/commit!))))))
 
-     ;; step 3: commit new .xml
-     (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
-                     :no-clean true))))
+     ;; ;; step 3: commit new .xml
+     ;; (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
+     ;;                 :no-clean true))))
 
 (core/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -418,9 +372,9 @@
   (print-task "deps" *opts*)
   (println "libdir" (lib-dir))
   (comp (builtin/uber :as-jars true)
-        (builtin/sift :include #{#"jar$"})
-        (builtin/target :dir #{(lib-dir)}
-                        :no-clean true)))
+        #_(builtin/sift :include #{#"jar$"})))
+        ;; (builtin/target :dir #{(lib-dir)}
+        ;;                 :no-clean true)))
 ;;  (core/reset-fileset))
 
 (core/deftask install-sdk
@@ -543,6 +497,53 @@
         ;; )
 
     ))))
+
+(core/deftask servlets
+  "aot compile master servlet file"
+  [c clj bool "Save intermediate generated .clj file"
+   d odir DIR str "output dir for generated class files"
+   n namespace NS str "namespace to aot"
+   s servleter SERVELETER str "namespace for master servlet generator"
+   v verbose bool "Print trace messages."]
+  (print-task "servlets" *opts*)
+  (let [content (stencil/render-file "migae/boot_gae/servlets.mustache" config-map)
+        servlet-ns (:servlet-ns config-map)
+        regex (re-pattern (str "(" (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj)"))
+        dest (if odir odir classes-dir)
+        mv-arg {regex (str dest "/$1")}
+        aot-ns (symbol (str (if odir odir classes-dir)
+                            "/" (str/replace (:servlet-ns config-map) #"\.|-" {"." "/" "-" "_"})))
+                               ]
+    ;; (println "aot-ns: " aot-ns)
+    ;; (println "STENCIL: " content)
+    (println "mv arg: " mv-arg)
+    (comp
+     ;; (builtin/sift :move mv-arg)
+     ;; (builtin/show :fileset true)
+     ;; Step 1: generate source .clj
+     (core/with-pre-wrap fileset
+       (let [tmp-dir (core/tmp-dir!)
+             odir (if odir odir classes-dir)
+             servlet-master (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")
+             _ (println "servlet-master: " servlet-master)
+             out-file (doto (io/file tmp-dir
+                                     ;;(str odir "/"
+                                     servlet-master ;;)
+                        ) io/make-parents)
+             ]
+         (println "servlet-ns: " servlet-ns)
+         (spit out-file content)
+         (-> fileset (core/add-source tmp-dir) core/commit!)))
+     ;; Step 2: compile it
+     (builtin/aot :namespace #{servlet-ns}))))
+;;                  :dir (if odir odir "./" )))))
+
+     ;; (builtin/sift :include (if clj #{#".*\.class"  #"\.clj$"} #{#"\.class$"}))
+     ;; (builtin/target :dir #{classes-dir}
+     ;;                 :no-clean false)
+     ;;   #_(builtin/show :fileset true)
+     ;;   #_(core/reset-fileset fileset)
+     ;;   #_fileset)))
 
 (core/deftask stencil
   "Process stencil templates"
