@@ -359,8 +359,36 @@ operations that generate the actual servlet code.
 ====
 
 By default the generated clojure file will be discarded once it has been aot compiled.  To save it, add the
-
 ====
+
+Servlet implementations will look like this:
+
+[source,clojure]
+.migae/echo.clj
+----
+(ns migae.echo
+  (:require [clojure.math.numeric-tower :as math]
+            [compojure.core :refer :all]
+            [compojure.route :as route]
+            [ring.handler.dump :refer :all] ; ring-devel
+            [ring.util.response :as rsp]
+            [ring.util.servlet :as servlet]
+            [ring.middleware.params :refer [wrap-params]] ; in ring-core
+            [ring.middleware.defaults :refer :all])) ; ring-defaults
+
+(defroutes echo-routes
+  (context "/echo" []
+    (GET "/hello/:name" [name]
+         (-> (rsp/response (str "Hello there, " name))
+             (rsp/content-type "text/html")))
+    (route/not-found "<h1>Echo API not found</h1>")))
+
+(servlet/defservice
+   (-> (routes
+        echo-routes)
+       (wrap-defaults api-defaults)
+       ))
+----
 
 
 [[config-map]]
