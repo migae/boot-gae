@@ -212,7 +212,7 @@
   "copy assets to build-dir"
   [v verbose bool "Print trace messages"
    t type TYPE kw "type to move"
-   o odir ODIR str "output dir"]
+   o odir ODIR str "output dir (default: './')"]
 (let [regex (re-pattern (condp = type
                           :clj  #"(.*clj$)"
                           :cljs  #"(.*cljs$)"
@@ -260,7 +260,7 @@
     (comp
      (core/with-pre-wrap fs
        (let [tmp-dir (core/tmp-dir!)
-             _ (println "odir: " odir)
+             ;; _ (println "odir: " odir)
              out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
          (spit out-file content)
          (-> fs (core/add-resource tmp-dir) core/commit!))))))
@@ -365,6 +365,13 @@
             (println "\t" arg))))
     #_(. method invoke nil invoke-args))
     )
+
+(core/deftask libs
+  "" []
+  (comp
+   (builtin/uber :as-jars true)
+   (builtin/sift :include #{#"jar$"} :move {#"(.*jar$)" "WEB-INF/lib/$1"})
+   (builtin/target :dir #{"build"} :no-clean true)))
 
 (core/deftask deps
   "Install dependency jars in <build-dir>/WEB-INF/lib"
@@ -499,7 +506,7 @@
 
 (core/deftask servlets
   "aot compile master servlet file"
-  [c clj bool "Save intermediate generated .clj file"
+  [a save bool "Save intermediate generated .clj file"
    d odir DIR str "output dir for generated class files"
    n namespace NS str "namespace to aot"
    s servleter SERVELETER str "namespace for master servlet generator"
@@ -515,7 +522,7 @@
                                ]
     ;; (println "aot-ns: " aot-ns)
     ;; (println "STENCIL: " content)
-    (println "mv arg: " mv-arg)
+    ;; (println "mv arg: " mv-arg)
     (comp
      ;; (builtin/sift :move mv-arg)
      ;; (builtin/show :fileset true)
@@ -524,20 +531,19 @@
        (let [tmp-dir (core/tmp-dir!)
              odir (if odir odir classes-dir)
              servlet-master (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")
-             _ (println "servlet-master: " servlet-master)
+             ;; _ (println "servlet-master: " servlet-master)
              out-file (doto (io/file tmp-dir
                                      ;;(str odir "/"
                                      servlet-master ;;)
                         ) io/make-parents)
              ]
-         (println "servlet-ns: " servlet-ns)
+         ;; (println "servlet-ns: " servlet-ns)
          (spit out-file content)
          (-> fileset (core/add-source tmp-dir) core/commit!)))
      ;; Step 2: compile it
-     (builtin/aot :namespace #{servlet-ns}))))
+     (builtin/aot :namespace #{servlet-ns})
 ;;                  :dir (if odir odir "./" )))))
-
-     ;; (builtin/sift :include (if clj #{#".*\.class"  #"\.clj$"} #{#"\.class$"}))
+      (builtin/sift :include (if save #{#".*\.class"  #"\.clj$"} #{#"\.class$"})))))
      ;; (builtin/target :dir #{classes-dir}
      ;;                 :no-clean false)
      ;;   #_(builtin/show :fileset true)
