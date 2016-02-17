@@ -1,0 +1,480 @@
+boot-gae
+--------
+
+boot for Google AppEngine development
+
+[IMPORTANT]
+====
+The documentation, like the code, is unpolished and partially
+incomplete.  In particular the reader will probably need to have some
+idea of how boot works.
+====
+
+
+* <<tasks>>
+* <<usage>>
+* <<repl>>
+* <<config,config>>
+* <<servlets,servlets>>
+* <<config-map,configuration map>>
+
+[[tasks]]
+== tasks
+
+* `gae/assets`          copy assets to build-dir
+* `gae/config`          configure gae xml config files
+* `gae/deploy`          install a new version of the application onto the server
+* `gae/libs`            install dependency jars in <build-dir>/WEB-INF/lib
+* `gae/install-sdk`     unpack and install the SDK zipfile
+* `gae/logging`		configure gae logging
+* `gae/run`		run devappserver
+* `gae/servlets`	aot compile master servlet file
+
+
+[[usage]]
+== usage
+
+[source,clojure]
+.build.boot
+----
+...
+:dependencies ... [migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"] ...
+...
+(require '[migae.boot-gae :as gae] ...
+----
+
+[NOTE]
+====
+This documentation will use the namespace alias `gae`, as just shown,
+to refer to boot-gae tasks.  For example, `gae/config` means `migae.boot-gae/config`.
+====
+
+
+Then you need to define a map named `gae` to configure things; see
+<<config-map,below>> for details.
+
+[source,clojure]
+.build.boot
+----
+(def gae { ... details below ...}
+----
+
+[[repl]]
+==== replry
+
+Then you'll need to prepare things, as described below.  Once that's
+done, you'll no doubt want to do repl-based development: change some
+source code and have the results show up immediately in the browser.
+We're not quite that replish: you have to refresh the browser.  To
+make this work, you have to copy your changes into `WEB-INF/classes`.
+That's because the GAE dev server will refuse to look anywhere else
+for resources, for security reasons.
+
+So if you want repl, you need to do two things. First, run the
+following command before you start editing:
+
+```
+$ boot watch sift -i "clj$" target -d "build/WEB-INF/classes" -C
+```
+
+Now when a source file changes, `sift -i "clj$"` will exclude anything
+not matching the include regex "clj$" and pass the result to `target`,
+which will move everthing into the classpath.
+
+[WARNING]
+====
+If you're going to be working with multiple file types you'll need to adjust the regex and/or run multiple watch pipelines.
+
+For example, if you want to edit .css files located at <approot> (that
+is, not in WEB-INF), you would run something like: 
+
+```
+$ boot watch sift -i "html$" target -d "build" -C
+```
+====
+
+
+The second thing you need to do is install a filter servlet that will
+reload your Clojure files from `WEB-INF/classes`.  Here's an example:
+
+[source,clojure]
+.migae/servlets.clj
+----
+(ns migae.servlets)
+...
+(gen-class :name migae.reloader
+           :implements [javax.servlet.Filter]
+           :impl-ns migae.reloader)
+----
+
+[source,clojure]
+.migae/reloader.clj
+----
+(ns migae.reloader
+  (:import (javax.servlet Filter FilterChain FilterConfig
+                          ServletRequest ServletResponse))
+  (:require [ns-tracker.core :refer :all]))
+(defn -init [^Filter this ^FilterConfig cfg])
+(defn -destroy [^Filter this])
+(def modified-namespaces (ns-tracker ["./"]))
+(defn -doFilter
+  [^Filter this
+   ^ServletRequest rqst
+   ^ServletResponse resp
+   ^FilterChain chain]
+  (doseq [ns-sym (modified-namespaces)]
+    (require ns-sym :reload))
+  (.doFilter chain rqst resp))
+----
+
+[source,xml]
+.WEB-INF/web.xml
+----
+  <filter-mapping>
+    <url-pattern>/*</url-pattern>
+    <filter-name>reloader</filter-name>
+  </filter-mapping>
+  <filter>
+    <filter-name>reloader</filter-name>
+    <filter-class>migae.reloader</filter-class>
+  </filter>
+----
+
+To make this work, all you need to provide is the `migae/reloader.clj`
+file and set the configuration map.  The `WEB-INF/web.xml` files will
+be autogenned as explained in <<config>>, and the
+`migae/servlets.clj` file will be autogenned, aot-compiled, and
+discarded, as explained in <<servlets>>.
+
+== prep
+Once your `build.boot` is set up, you need to prepared the system.
+boot-gae has a dependency on the GAE sdk, so the first time you run it
+it will be downloaded.  Don't be alarmed if it takes a while; the SDK
+is a ~165 MB zipfile.
+
+The GAE dev server requires that the SDK be available in exploded
+form.  The maven artifact that gets installed into `~/.m2/repository`
+is a zipfile; the `gae/install-sdk` task will explode it and install
+it.
+
+Use the `:sdk-root` key in the `gae` configuration map to specify a
+location.  The default is `~/.appengine-sdk`; if you want to be
+compatible with Gradle, use `:sdk-root "~/.gradle/appengine-sdk".
+
+Once the SDK is installed, proceed with preparing your webapp.  GAE
+has strict security rules; the dev server will not allow access to
+anything outside of the webapp's root directory.  That means that
+everything that needs to be on the classpath must be installed in
+`<approot>/WEB-INF`.  For libraries that means all the jarfile
+dependencies must be copied into `<approot>/WEB-INF/lib`.  The
+`gae/libs` task takes care of this:
+
+```
+$ boot gae/libs
+Adding uberjar entries...
+Sifting output files...
+Writing target dir(s)...
+```
+
+Now you have four tasks remaining:
+
+* copy sources/resources into the build tree so they will be accessible by the dev server
+* configure logging - `gae/logging`; configuration is set via the `:logging` key in the config map
+* configure appengine and the servlet container (create appengine-web.xml and web.xml)
+ ** <<config>> will read the <<config-map,configuration map>> and generate these files
+* aot compile your servlets - <<servlets>> does this.
+
+[WARNING]
+====
+The way boot works is that the `target` task will copy stuff to the
+build directory.  So for example, if you have `foo.html` at the root
+of your resources dir, `target` will put it in the same place
+*relative to the build dir*, so it will end up in `<build-dir>/`.  For
+static assets that's generally a good thing.
+
+For Clojure files, and for anything that you want to move into
+`WEB-INF` (thereby removing it from public accessibility), you need to
+use the `sift` task instead.  In particular the `:move` parameter to
+`sift` allows you to pick out the files you are interested in and rewrite
+their paths.
+
+You could use `sift` to arrange things by hand, but as a convenience
+the `gae/assets` task encapsulates `sift`.  Generally you'll only need
+it for Clojure source files:
+
+```
+(gae/assets :type :clj :odir "WEB-INF/classes")
+```
+
+CAVEAT: `gae/assets` probably isn't really necessary and may be removed
+====
+
+Once you've done that, just run `$ boot gae/run` and the dev server should launch.
+
+You can easily automate this by defining some tasks in your `build.boot`.  Here's an example:
+
+[source,clojure]
+.build.boot
+----
+;; assuming gae/install-sdk and gae/libs have been run, do:
+(deftask prep
+  "run all the boot-gae prep tasks"
+  []
+  (comp (gae/assets :type :clj :odir "WEB-INF/classes")
+        (gae/logging)
+        (gae/config)
+        (builtin/target :dir #{"build"} :no-clean true)
+        (gae/servlets)
+        (builtin/sift :include #{#"class$"}
+                      :move {#"(.*class$)" "WEB-INF/classes/$1"})
+        (builtin/target :dir #{"build"} :no-clean true)))
+----
+
+In short, if you have added this `prep` task definition to your
+`build.boot`, then all you have to do to get running is:
+
+1.  `$ boot gae/install-sdk`
+2.  `$ boot gae/libs`
+3.  `$ boot prep`
+4.  `$ boot gae/run`
+
+[[deployment]]
+== deployment
+
+You will obviously need a GAE account to deploy.
+
+To deploy run `$ boot gae/deploy`.
+
+
+[[config]]
+=== gae/config
+
+Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
+configuration files required by the GAE servlet container are
+automatically generated from your configuration map.  The dev server
+will automatically reload `appengine-web.xml` if it changes, but
+unfortunately the same cannot be said for `web.xml`. If you change it
+- that is, if you change your configuration map and re-run
+`gae/config` -- you need to restart the dev server.  For example:
+
+[source,shell]
+----
+$ boot gae/config target -C -d "build"
+$ boot gae/run
+----
+
+[NOTE]
+====
+For the moment you need to run gae/run as a separate step as shown here.  If you
+tack it on the end of the first boot command shown here, boot seems to
+launch the dev server before the gae/config task has completed.
+====
+
+[[servlets]]
+== gae/servlets
+
+Servlets can be implemented in Clojure in a variety of ways; boot-gae
+supports the technique described here out of the box, via the
+`gae/servlets` task.  That task reads the `gae` configuration map from
+`build.boot`, processes a stencil template file to generate a Clojure
+source file, and then aot compiles that source file.
+
+Here's an example:  this configuration map:
+
+[source,clojure]
+.build.boot
+----
+(def gae
+{ ...
+   :servlet-ns 'migae.servlets
+   :servlets [{:ns 'migae.echo  ;; = servlet-class
+               ;; :jsp - alternative to :ns, for using java servlet pages
+               :name "echo-servlet"
+               :display {:name "Awesome Echo Servlet"}
+               :desc {:text "blah blah"}
+               :url "/echo/*"
+               :params [{:name "greeting" :val "Hello"}]
+               :load-on-startup {:order 3}}
+
+              {:ns 'migae.math      ;; REQUIRED
+               :name "math-servlet"  ;; REQUIRED
+               :url "/math/*"      ;; REQUIRED
+               :params [{:name "op" :val "+"}
+                        {:name "arg1" :val 3}
+                        {:name "arg2" :val 2}]}]
+...}
+----
+
+will produce the following Clojure:
+
+[source,clojure]
+.migae/servlets.clj
+----
+(ns migae.servlets)
+
+(gen-class :name migae.echo
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns migae.echo)
+(gen-class :name migae.math
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns migae.math)
+
+(gen-class :name migae.reloader
+           :implements [javax.servlet.Filter]
+           :impl-ns migae.reloader)
+----
+
+[IMPORTANT]
+====
+The namespace for this file is specified by the `:servlet-ns` key of
+the `gae` config map, and the gen-class `:name` and `:impl-ns` values
+are from the `:servlets` key.  See the <<config-map,example>> below.
+
+Note that `:servlets-ns` is a little misleading; the generated file is
+not itself a servlet, it's just there to hold the `gen-class`
+operations that generate the actual servlet code.
+====
+
+[TIP]
+====
+
+By default the generated clojure file will be discarded once it has been aot compiled.  To save it, add the
+
+====
+
+
+[[config-map]]
+== configuration map
+
+The configuration map is used by the `gae/config` task to generate the
+`web.xml` and `appengine-web.xml` files required by GAE.
+
+It is also used by the `gae/servlets` task, which generates and aot
+compiles the Clojure code needed to support servlet development; see
+<<servlets>> for details.
+
+
+See
+
+* https://cloud.google.com/appengine/docs/java/config/webxml:[The Deployment Descriptor: web.xml] (Google)
+* https://cloud.google.com/appengine/docs/java/config/appconfig[Configuring appengine-web.xml] (Google)
+* https://docs.oracle.com/cd/E13222_01/wls/docs92/webapp/configureservlet.html[Creating and Configuring Servlets] (Oracle)
+* http://docs.oracle.com/cd/E13222_01/wls/docs81/webapp/web_xml.html[web.xml Deployment Descriptor Elements] (Oracle)
+
+Example:
+
+[source,clojure]
+----
+(def gae
+  ;; https://cloud.google.com/appengine/docs/java/config/webxml
+  ;; web.xml doco: http://docs.oracle.com/cd/E13222_01/wls/docs81/webapp/web_xml.html
+  {;; :build-dir ; default: "build";  gradle compatibility: "build/exploded-app"
+   ;; :sdk-root ; default: ~/.appengine-sdk; gradle compatibility: "~/.gradle/appengine-sdk"
+   :list-tasks true ;; print "TASK: <taskname>"
+   ;; :verbose true
+   :aot #{'migae.servlets}
+   :app-id (clojure.string/replace +project+ #"/" ".")
+   :module "foo"
+   ;; gae version string syntax: no '.', lowercase only, etc
+   :version (clojure.string/lower-case (clojure.string/replace +version+ #"\." "-"))
+   :display-name {:name "hello app"}  ;; web.xml <display-name>
+   :descr {:text "description of this web app, for web.xml etc."} ;; web.xml
+   ;; appengine-web.xml: see https://cloud.google.com/appengine/docs/java/config/appconfig
+   :appengine {:thread-safe true
+               ;; :public-root "/static"
+               :system-properties {:props [{:name "myapp.maximum-message-length" :value "140"}
+                                           {:name "myapp.notify-every-n-signups" :value "1000"}
+                                           {:name"myapp.notify-url"
+                                            :value "http://www.example.com/supnotfy"}]}
+               ;; :env-vars [{:name "FOO" :value "BAR"}]
+               :logging {:jul {:name "java.util.logging.config.file"
+                               :value "WEB-INF/logging.properties"}}
+               ;; #_{:log4j {:name "java.util.logging.config.file"
+               ;;          :value "WEB-INF/classes/log4j.properties"}}}
+               :sessions true
+               :ssl true
+               :async-session-persistence {:enabled "true" :queue-name "myqueue"}
+               :inbound-services [{:service :mail} {:service :warmup}]
+               :precompilation true
+               ;; :scaling {:basic {:max-instances 11 :idle-timeout "10m"
+               ;;                   :instance-class "B2"}
+               ;;           :manual {:instances 5
+               ;;                    :instance-class "B2"}
+               ;;           :automatic {:instance-class "F2"
+               ;;                       :idle-instances {:min 5
+               ;;                                        ;; ‘automatic’ is the default value.
+               ;;                                        :max "automatic"}
+               ;;                       :pending-latency {:min "30ms" :max "automatic"}
+               ;;                       :concurrent-requests {:max 50}}}
+               ;; :resource-files {:include [{:path "**.xml"
+               ;;                            :expiration "4d h5"
+               ;;                            :http-header {:name "Access-Control-Allow-Origin"
+               ;;                                          :value "http://example.org"}}]
+               ;;                  :exclude [{:path "feed/**.xml"}]}
+               ;; :static-files {:include {:path "foo/**.png"
+               ;;                          :expiration "4d h5"
+               ;;                          :http-header {:name "Access-Control-Allow-Origin"
+               ;;                                        :value "http://example.org"}}
+               ;;                :exclude {:path "bar/**.zip"}}
+               }
+   :welcome {:file "index.html"}
+   :errors [{:code 404 :url "/404.html"}] ;; use :code, or:type, e.g 'java.lang.String
+   ;;mime: see http://www.opensource.apple.com/source/JBoss/JBoss-739/jakarta-tomcat-LE-jdk14/conf/web.xml
+   :mime-mappings [{:ext "abs" :type "audio/x-mpeg"}
+   		  {:ext "gz"  :type "application/x-gzip"}
+		  {:ext "htm" :type "text/html"}
+		  {:ext "html" :type "text/html"}
+		  {:ext "svg" :type "image/svg+xml"}
+		  {:ext "txt" :type "text/plain"}
+		  {:ext "xml" :type "text/xml"}
+		  {:ext "xsl" :type "text/xsl"}
+		  {:ext "zip" :type "application/zip"}]
+   ;; servlet config: the config task will:
+   :servlet-ns 'migae.servlets ;; autogen migae/servlets.clj from a stencil template
+   ;; :servlets used to gen :servlet-ns file AND servlet configs in web.xml
+   :servlets [{:ns 'migae.echo  ;;  web.xml <servlet-class>
+               :name "echo-servlet"  ;; REQUIRED
+               :url "/echo/*"   ;; REQUIRED
+               :display {:name "Awesome Echo Servlet"} ;; web.xml <display-name>
+               :desc {:text "description of this servlet blah blah"}
+               :params [{:name "greeting" :val "Hello"}]
+               :load-on-startup {:order 3}}
+
+              {:ns 'migae.math
+               :name "math-servlet"
+               :url "/math/*"
+               :params [{:name "op" :val "+"}
+                        {:name "arg1" :val 3}
+                        {:name "arg2" :val 2}]}]
+   ;; appstats is specific to GAE
+   ;; see https://cloud.google.com/appengine/docs/java/tools/appstats
+   :appstats {:admin-console {:url "/appstats" :name "Appstats"}
+              :name "appstats"
+              :desc {:text "Google Appstats Service"}
+              :url "/admin/appstats/*"
+              :security-role "admin"
+              :filter {:display {:name "Google Appstats"}
+                       :desc {:text "Google Appstats Filter"}
+                       :url "/*"
+                       :params [{:name "logMessage"
+                                 :val "Appstats available: /appstats/details?time={ID}"}
+                                {:name "calculateRpcCosts"
+                                 :val true}]}
+              :servlet {:display {:name "Google Appstats"}}}
+   ;; if you want a repl-like environment on the dev server,
+   ;; you must use a servlet filter to reload your clojure code
+   ;; see http://www.oracle.com/technetwork/java/filters-137243.html
+   :filters [{:ns 'migae.reloader   ; REQUIRED
+              :name "reloader"      ; REQUIRED
+              :display {:name "Clojure reload filter"} ; OPTIONAL
+              :urls [{:url "echo/*"}
+                     {:url "math/*"}]
+              :desc {:text "clojure reload filter"}}]
+   ;; web.xml security constraints
+   ;; see http://docs.oracle.com/javaee/5/tutorial/doc/bncbe.html
+   ;;
+   :security [{:resource {:name "foo" :desc {:text "Foo resource security"}
+                          :url "/foo/*"}
+               :role "admin"}]})
+
+----
