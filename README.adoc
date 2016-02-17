@@ -1,7 +1,7 @@
 boot-gae
 --------
 
-boot for Google AppEngine development
+A Boot library for Google App Engine development in Clojure.
 
 [IMPORTANT]
 ====
