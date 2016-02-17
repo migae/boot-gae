@@ -165,7 +165,7 @@
                               ;(println "FARGS: " fargs (type fargs))
                               (seq fargs)))
                         (str (get kw->opt k) "=" v))))]
-    (println "MERGE: " (pr-str r))
+    #_(println "MERGE: " (pr-str r))
     r))
 
 (defn- find-mainfiles [fs]
@@ -439,16 +439,15 @@
 
    ;; _ exploded-war-directory VAL str "--exploded_war_directory"
 
-  (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)
-        ]
-    (println "*OPTS*: " *opts*)
-    (println "KS-PARAMS: " ks-params)
+  (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)]
+    ;; (println "*OPTS*: " *opts*)
+    ;; (println "KS-PARAMS: " ks-params)
 
     ;;FIXME: build a java string array from ks-params
     ;; first arg in gradle plugin: MAIN_CLASS = 'com.google.appengine.tools.development.DevAppServerMain'
 
     (let [args (->args ks-params)
-          _ (println "ARGS: " args)
+          ;; _ (println "ARGS: " args)
           main-class "com.google.appengine.tools.development.DevAppServerMain"
           ;; jargs (list* main-class args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
@@ -458,8 +457,8 @@
                  (gae-app-dir)]
           jargs (into-array String jargs)]
 
-      (println "jargs: " jargs (type jargs))
-      (doseq [a jargs] (println "JARG: " a))
+      ;; (println "jargs: " jargs (type jargs))
+      ;; (doseq [a jargs] (println "JARG: " a))
       ;; implicit (System) params: java.class.path
       ;; (System/setProperty sdk-root-property sdk-root)
       ;; DEFAULT_SERVER = "appengine.google.com";
@@ -479,16 +478,16 @@
       (let [;;class-loader (. (Thread/currentThread) getContextClassLoader)
             class-loader (-> (Thread/currentThread) (.getContextClassLoader))
             cl (.getParent class-loader)
-            _ (println "class-loader: " class-loader (type class-loader))
+            ;; _ (println "class-loader: " class-loader (type class-loader))
             ;; Class kickStart = Class.forName('com.google.appengine.tools.KickStart', true, classLoader)
             kick-start (Class/forName "com.google.appengine.tools.KickStart" true class-loader)
             ]
-      (println "kick-start: " kick-start (type kick-start))
+      ;; (println "kick-start: " kick-start (type kick-start))
 
-      #_(doseq [j (pod/get-classpath)]
-        (let [url (java.net.URL. (str j))]
-          (println "URL: " url)
-          (-> cl (.addURL url))))
+        ;; (doseq [j (pod/get-classpath)]
+        ;;   (let [url (java.net.URL. (str j))]
+        ;;     (println "URL: " url)
+        ;;     (-> cl (.addURL url))))
 
       ;; (pod/with-eval-in @pod
         (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))

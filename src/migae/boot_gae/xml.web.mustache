@@ -15,10 +15,12 @@
 
   <!-- #################### -->
   {{#filters}}
+  {{#urls}}
   <filter-mapping>
     <url-pattern>{{url}}</url-pattern>
     <filter-name>{{name}}</filter-name>
   </filter-mapping>
+  {{/urls}}
   <filter>
     <filter-name>{{name}}</filter-name>
     {{#display}}
@@ -155,11 +157,11 @@
 
   {{/errors}}
 
-  {{#appengine.mime-mappings}}
+  {{#mime-mappings}}
   <mime-mapping>
     <extension>{{ext}}</extension>
     <mime-type>{{type}}</mime-type>
   </mime-mapping>
-  {{/appengine.mime-mappings}}
+  {{/mime-mappings}}
 
 </web-app>
