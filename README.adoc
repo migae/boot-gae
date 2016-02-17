@@ -10,6 +10,9 @@ incomplete.  In particular the reader will probably need to have some
 idea of how boot works.
 ====
 
+IMPORTANT: not yet pushed to clojars.  If you want to give it a try,
+you must fork/clone it and run `$ boot pom jar install` to put it in
+your local repo.
 
 * <<tasks>>
 * <<usage>>
