@@ -560,5 +560,4 @@
         (logging)
         (config)
         (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (servlets)
-        (builtin/target)))
+        (servlets)))

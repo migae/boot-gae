@@ -143,3 +143,9 @@
        :version     +version+
        :description "Example code, boot, miraj, GAE"
        :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}})
+
+(deftask build
+  "build and save"
+  []
+  (comp (gae/build)
+        (target)))
