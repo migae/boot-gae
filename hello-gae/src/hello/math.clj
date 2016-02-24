@@ -20,7 +20,7 @@
    (POST "/minus" [x y :as req]        ; body params
          (str (- (read-string x) (read-string y)) "\n"))
    (GET "/times/:x/:y" [x y]           ; named (path) params
-        (-> (rsp/response (str "X: " (* (read-string x) (read-string y)) "\n"))
+        (-> (rsp/response (str "Answer: " (* (read-string x) (read-string y)) "\n"))
             (rsp/content-type "text/html")))
    (GET "/power" {:keys [headers] :as req} ; header params
         (let [x (read-string (get headers "x-x"))
