@@ -550,4 +550,4 @@
 (boot/deftask watch
   "watch for gae project"
   []
-  (comp (watch) (gae/clj-cp) (target :no-clean)))
+  (comp (watch) (clj-cp) (target :no-clean)))
