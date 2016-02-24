@@ -6,7 +6,7 @@
             [stencil.core :as stencil]
             [boot.user]
             [boot.pod :as pod]
-            [boot.core :as core]
+            [boot.core :as boot]
             [boot.util :as util]
             [boot.task.built-in :as builtin])
   (:import [com.google.appengine.tools KickStart]
@@ -24,17 +24,17 @@
     s))
 
 #_(doseq [dep (filter #(str/starts-with? (.getName %) "appengine-java-sdk")
-                    (pod/resolve-dependency-jars (core/get-env) true))]
+                    (pod/resolve-dependency-jars (boot/get-env) true))]
   (println "DEP: " (.getName dep)))
 
-(def sdk-string (let [jars (pod/resolve-dependency-jars (core/get-env) true)
+(def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
                    zip (filter #(str/starts-with? (.getName %) "appengine-java-sdk") jars)
                    fname (first (for [f zip] (.getName f)))
                     sdk-string (subs fname 0 (str/last-index-of fname "."))]
                ;; (println "sdk-string: " sdk-string)
                sdk-string))
 
-(def config-map (merge {:build-dir "build"
+(def config-map (merge {:build-dir "target"
                         :sdk-root (let [dir (str (System/getenv "HOME") "/.appengine-sdk")]
                                     (str dir "/" sdk-string))}
                        (reduce (fn [altered-map [k v]] (assoc altered-map k
@@ -42,7 +42,7 @@
                                                                 (str (expand-home v) "/" sdk-string)
                                                                 v)))
                                {} boot.user/gae)))
-                               ;; {} (:gae (core/get-env)))))
+                               ;; {} (:gae (boot/get-env)))))
 
 ;;(str (:build-dir config-map)
 (def web-inf-dir "WEB-INF")
@@ -58,7 +58,7 @@
 (def root-project "")
 
 (def project-dir (System/getProperty "user.dir"))
-(def build-dir (str/join "/" [project-dir "build"]))
+(def build-dir (str/join "/" [project-dir "target"]))
 
 (defn output-libs-dir [nm] (str/join "/" [build-dir "libs"]))
 (defn output-resources-dir [nm] (str/join "/" [build-dir "resources" nm]))
@@ -66,7 +66,7 @@
 (defn java-source-dir [nm] (str/join "/" [project-dir "src" nm "java"]))
 (defn input-resources-dir [nm] (str/join "/" [project-dir "src" nm "resources"]))
 
-(defn gae-app-dir [] "build")
+(defn gae-app-dir [] "target")
 
 (def sdk-root-property "appengine.sdk.root")
 (def java-classpath-sys-prop-key "java.class.path")
@@ -87,7 +87,7 @@
   )
 
 (defn dump-env []
-  (let [e (core/get-env)]
+  (let [e (boot/get-env)]
     (println "ENV:")
     (util/pp* e)))
 
@@ -95,7 +95,7 @@
 (defn dump-tmpfiles
   [lbl tfs]
   (println "\n" lbl ":")
-  (doseq [tf tfs] (println (core/tmp-file tf))))
+  (doseq [tf tfs] (println (boot/tmp-file tf))))
 
 (defn dump-tmpdirs
   [lbl tds]
@@ -106,13 +106,13 @@
   [fileset]
   (doseq [f (:dirs fileset)] (println "DIR: " f))
   (doseq [f (:tree fileset)] (println "F: " f)))
-  ;; (dump-tmpfiles "INPUTFILES" (core/input-files fileset))
-  ;; (dump-tmpdirs "INPUTDIRS" (core/input-dirs fileset))
-  ;; (dump-tmpdirs "OUTPUTFILESET" (core/output-files (core/output-fileset fileset)))
-  ;; (dump-tmpfiles "OUTPUTFILES" (core/output-files fileset))
-  ;; (dump-tmpdirs "OUTPUTDIRS" (core/output-dirs fileset))
-  ;; (dump-tmpfiles "USERFILES" (core/user-files fileset))
-  ;; (dump-tmpdirs "USERDIRS" (core/user-dirs fileset)))
+  ;; (dump-tmpfiles "INPUTFILES" (boot/input-files fileset))
+  ;; (dump-tmpdirs "INPUTDIRS" (boot/input-dirs fileset))
+  ;; (dump-tmpdirs "OUTPUTFILESET" (boot/output-files (boot/output-fileset fileset)))
+  ;; (dump-tmpfiles "OUTPUTFILES" (boot/output-files fileset))
+  ;; (dump-tmpdirs "OUTPUTDIRS" (boot/output-dirs fileset))
+  ;; (dump-tmpfiles "USERFILES" (boot/user-files fileset))
+  ;; (dump-tmpdirs "USERDIRS" (boot/user-dirs fileset)))
 
 (def config-props
   {;; https://docs.gradle.org/current/userguide/war_plugin.html
@@ -170,8 +170,8 @@
 
 (defn- find-mainfiles [fs]
   (->> fs
-       core/input-files
-       (core/by-ext [".clj"])))
+       boot/input-files
+       (boot/by-ext [".clj"])))
 
 
 (defn get-tools-jar []
@@ -192,6 +192,7 @@
     #_(println "Java classpath: " (System/getProperty java-classpath-sys-prop-key))
 
     ;; Adding appengine-tools-api.jar to context ClassLoader
+    ;; see also http://stackoverflow.com/questions/194698/how-to-load-a-jar-file-at-runtime?lq=1
     (let [;; ClassLoader rootClassLoader = ClassLoader.systemClassLoader.parent
           root-class-loader (.getParent (ClassLoader/getSystemClassLoader))
           ;;URLClassLoader appengineClassloader
@@ -201,44 +202,44 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-#_(core/deftask foo "" []
-  (core/with-pre-wrap [fs]
+#_(boot/deftask foo "" []
+  (boot/with-pre-wrap [fs]
     (println "FS: " (type fs))
-    (let [asset-files (->> fs core/output-files (core/by-ext [".clj"]))]
+    (let [asset-files (->> fs boot/output-files (boot/by-ext [".clj"]))]
          (doseq [asset asset-files] (println "foo" asset)))
     fs))
 
-(core/deftask assets
-  "copy assets to build-dir"
-  [v verbose bool "Print trace messages"
-   t type TYPE kw "type to move"
-   o odir ODIR str "output dir (default: './')"]
-(let [regex (re-pattern (condp = type
-                          :clj  #"(.*clj$)"
-                          :cljs  #"(.*cljs$)"
-                          :css  #"(.*css$)"
-                          :html #"(.*html$)"
-                          :ico  #"(.*ico$)"
-                          :js  #"(.*js$)"
-                          ""))
-        dest (if odir odir "./")
-        arg {regex (str dest "/$1")}]
-    (builtin/sift :move arg)))
+;; (boot/deftask assets
+;;   "copy assets to build-dir"
+;;   [v verbose bool "Print trace messages"
+;;    t type TYPE kw "type to move"
+;;    o odir ODIR str "output dir. default depends on file type."]
+;;   (let [regex (re-pattern (condp = type
+;;                             :clj  #"(.*clj$)"
+;;                             :cljs  #"(.*cljs$)"
+;;                             :css  #"(.*css$)"
+;;                             :html #"(.*html$)"
+;;                             :ico  #"(.*ico$)"
+;;                             :js  #"(.*js$)"
+;;                             ""))
+;;         dest (if odir odir
+;;                  (condp = type
+;;                    :clj "WEB-INF/classes"
+;;                    "./"))
+;;         arg {regex (str dest "/$1")}]
+;;     (builtin/sift :move arg)))
 
-#_(core/deftask clj-cp
+(boot/deftask clj-cp
   "Copy source .clj files to <build-dir>/WEB-INF/classes"
   []
-  (println "TASK: boot-gae/clj-cp")
-  (comp (builtin/sift :include #{#".*.clj$"})
-        (builtin/target :dir #{classes-dir}
-                        :no-clean true)))
+  (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"}))
 
-(core/deftask logging
+(boot/deftask logging
   "configure gae logging"
   [l log LOG kw ":log4j or :jul"
    v verbose bool "Print trace messages."
    o odir ODIR str "output dir"]
-  (print-task "logging" *opts*)
+  ;; (print-task "logging" *opts*)
   (let [content (stencil/render-file
                  (if (= log :log4j)
                    "migae/boot_gae/log4j.properties.mustache"
@@ -258,25 +259,18 @@
     ;; (println "STENCIL: " content)
     ;; (println "mv pattern: " mv-arg)
     (comp
-     (core/with-pre-wrap fs
-       (let [tmp-dir (core/tmp-dir!)
+     (boot/with-pre-wrap fs
+       (let [tmp-dir (boot/tmp-dir!)
              ;; _ (println "odir: " odir)
              out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
          (spit out-file content)
-         (-> fs (core/add-resource tmp-dir) core/commit!))))))
+         (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
-     ;; (builtin/sift :move mv-arg))))
-
-     ;; (builtin/target :dir #{(if (= log :log4j)
-     ;;                          classes-dir
-     ;;                          (str (:build-dir config-map) "/WEB-INF"))}
-     ;;                 :no-clean true))))
-
-(core/deftask config
+(boot/deftask config
   "configure gae xml config files"
   [d dir DIR str "output dir"
    v verbose bool "Print trace messages."]
-  (print-task "config" *opts*)
+  ;; (print-task "config" *opts*)
 
   ;; TODO: implement defaults
   (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
@@ -285,8 +279,8 @@
     ;; (println "STENCIL: " web-xml)
     (comp
      ;; step 1: process template, put result in new Fileset
-     (core/with-pre-wrap fileset
-       (let [tmp-dir (core/tmp-dir!)
+     (boot/with-pre-wrap fileset
+       (let [tmp-dir (boot/tmp-dir!)
              web-xml-out-path (str odir "/web.xml")
              web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
              appengine-xml-out-path (str odir "/appengine-web.xml")
@@ -294,13 +288,13 @@
              ]
          (spit web-xml-out-file web-xml)
          (spit appengine-xml-out-file appengine-xml)
-         (-> fileset (core/add-resource tmp-dir) core/commit!))))))
+         (-> fileset (boot/add-resource tmp-dir) boot/commit!))))))
 
      ;; ;; step 3: commit new .xml
      ;; (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
      ;;                 :no-clean true))))
 
-(core/deftask deploy
+(boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
   ;; options from AppCfg.java, see also appcfg.sh --help
   [s server SERVER str "--server"
@@ -366,14 +360,14 @@
     #_(. method invoke nil invoke-args))
     )
 
-(core/deftask libs
+(boot/deftask libs
   "" []
   (comp
    (builtin/uber :as-jars true)
-   (builtin/sift :include #{#"jar$"} :move {#"(.*jar$)" "WEB-INF/lib/$1"})
-   (builtin/target :dir #{"build"} :no-clean true)))
+   (builtin/sift :include #{#"zip$"} :invert true)
+   (builtin/sift :move {#"(.*\.jar$)" "WEB-INF/lib/$1"})))
 
-(core/deftask deps
+(boot/deftask deps
   "Install dependency jars in <build-dir>/WEB-INF/lib"
   [v verbose bool "Print traces"]
   (print-task "deps" *opts*)
@@ -382,19 +376,19 @@
         #_(builtin/sift :include #{#"jar$"})))
         ;; (builtin/target :dir #{(lib-dir)}
         ;;                 :no-clean true)))
-;;  (core/reset-fileset))
+;;  (boot/reset-fileset))
 
-(core/deftask install-sdk
+(boot/deftask install-sdk
   "Unpack and install the SDK zipfile"
   [v verbose bool "Print trace messages"]
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
   (print-task "install-sdk" *opts*)
-  (let [jar-path (pod/resolve-dependency-jar (core/get-env)
+  (let [jar-path (pod/resolve-dependency-jar (boot/get-env)
                                              '[com.google.appengine/appengine-java-sdk "1.9.32"
                                                :extension "zip"])
         sdk-dir (io/as-file (:sdk-root config-map))
         prev        (atom nil)]
-    (core/with-pre-wrap fileset
+    (boot/with-pre-wrap fileset
       (if (.exists sdk-dir)
         (do
           (let [file-sep (System/getProperty "file.separator")
@@ -402,7 +396,7 @@
             (if (not (.exists (io/as-file tools-api-jar)))
               (do
                 (println "Found sdk-dir but not its contents; re-exploding")
-                (core/empty-dir! sdk-dir)
+                (boot/empty-dir! sdk-dir)
                 (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
                 (pod/unpack-jar jar-path (.getParent sdk-dir)))
               (if (or (:verbose *opts*) (:verbose config-map))
@@ -413,7 +407,7 @@
           (pod/unpack-jar jar-path (.getParent sdk-dir))))
       fileset)))
 
-(core/deftask run
+(boot/deftask run
   "Run devappserver"
   [;; DevAppServerMain.java
    _ sdk-server VAL str "--server"
@@ -481,9 +475,7 @@
 
       ;; (println "system classpath: " (System/getenv "java.class.path"))
 
-    ;; ClassLoader classLoader = Thread.currentThread().contextClassLoader
-      (let [;;class-loader (. (Thread/currentThread) getContextClassLoader)
-            class-loader (-> (Thread/currentThread) (.getContextClassLoader))
+      (let [class-loader (-> (Thread/currentThread) (.getContextClassLoader))
             cl (.getParent class-loader)
             ;; _ (println "class-loader: " class-loader (type class-loader))
             ;; Class kickStart = Class.forName('com.google.appengine.tools.KickStart', true, classLoader)
@@ -497,60 +489,47 @@
         ;;     (-> cl (.addURL url))))
 
       ;; (pod/with-eval-in @pod
+        ;; (def method (.getMethod kick-start "main" (class ???)))
         (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))
+        ;;(let [parms (.getParameterTypes method)] (println "param types: " parms))
         (def invoke-args (into-array Object [jargs]))
         (. method invoke nil invoke-args)
         ;; )
-
     ))))
 
-(core/deftask servlets
+(boot/deftask servlets
   "aot compile master servlet file"
-  [a save bool "Save intermediate generated .clj file"
-   d odir DIR str "output dir for generated class files"
-   n namespace NS str "namespace to aot"
-   s servleter SERVELETER str "namespace for master servlet generator"
+  [j save bool "include source .clj files in output (default: false)"
+   ;; d odir DIR str "output dir for generated class files"
+   n aot-ns NS str "namespace to generate and aot"
+   ;; s servleter SERVELETER str "namespace for master servlet generator"
    v verbose bool "Print trace messages."]
-  (print-task "servlets" *opts*)
+  ;; (print-task "servlets" *opts*)
   (let [content (stencil/render-file "migae/boot_gae/servlets.mustache" config-map)
-        servlet-ns (:servlet-ns config-map)
-        regex (re-pattern (str "(" (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj)"))
-        dest (if odir odir classes-dir)
-        mv-arg {regex (str dest "/$1")}
-        aot-ns (symbol (str (if odir odir classes-dir)
-                            "/" (str/replace (:servlet-ns config-map) #"\.|-" {"." "/" "-" "_"})))
-                               ]
-    ;; (println "aot-ns: " aot-ns)
-    ;; (println "STENCIL: " content)
-    ;; (println "mv arg: " mv-arg)
+        servlet-ns (if aot-ns (symbol aot-ns) (:servlet-ns config-map))
+        servlet-filename (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")]
+    (if verbose (println content))
     (comp
-     ;; (builtin/sift :move mv-arg)
-     ;; (builtin/show :fileset true)
-     ;; Step 1: generate source .clj
-     (core/with-pre-wrap fileset
-       (let [tmp-dir (core/tmp-dir!)
-             odir (if odir odir classes-dir)
-             servlet-master (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")
-             ;; _ (println "servlet-master: " servlet-master)
-             out-file (doto (io/file tmp-dir
-                                     ;;(str odir "/"
-                                     servlet-master ;;)
-                        ) io/make-parents)
-             ]
-         ;; (println "servlet-ns: " servlet-ns)
+     (boot/with-pre-wrap fileset
+       (let [tmp-dir (boot/tmp-dir!)
+             out-file (doto (io/file tmp-dir servlet-filename) io/make-parents)]
          (spit out-file content)
-         (-> fileset (core/add-source tmp-dir) core/commit!)))
-     ;; Step 2: compile it
+         (-> fileset (boot/add-resource tmp-dir) boot/commit!)))
      (builtin/aot :namespace #{servlet-ns})
-;;                  :dir (if odir odir "./" )))))
-      (builtin/sift :include (if save #{#".*\.class"  #"\.clj$"} #{#"\.class$"})))))
-     ;; (builtin/target :dir #{classes-dir}
-     ;;                 :no-clean false)
-     ;;   #_(builtin/show :fileset true)
-     ;;   #_(core/reset-fileset fileset)
-     ;;   #_fileset)))
+     ;;FIXME: do not hardcode WEB-INF/classes
+     (apply builtin/sift (vec (concat [:move {#"(.*class$)" "WEB-INF/classes/$1"}]
+                                      (if (not save)
+                                        [:include #{(re-pattern servlet-filename)} :invert true]))))
+     #_(fn [next-handler]
+       (fn [fs]
+         (if (not save)
+           (do (println "excluding aot clj")
+               (builtin/sift :include #{(re-pattern servlet-filename)} :invert true))))))))
+         ;; (next-handler fs))))))
+     ;; ;; #_(builtin/sift :include (if save #{#".*\.class"(re-pattern servlet-filename)}
+     ;; ;;                            #{#"\.class$"})))))
 
-(core/deftask stencil
+(boot/deftask stencil
   "Process stencil templates"
   [s stencil STENCIL str "Path to a stencil (mustache) template. Must be on classpath."
    d data DATA edn "A data map."
@@ -561,9 +540,9 @@
     ;; (println "STENCIL: " content)
     (comp
      ;; step 1: process template, put result in new Fileset
-     (core/with-pre-wrap fileset
-       (let [tmp-dir (core/tmp-dir!)
+     (boot/with-pre-wrap fileset
+       (let [tmp-dir (boot/tmp-dir!)
              ;; out-path (str (str/replace outpath #"\.|-" {"." "/" "-" "_"}))
              out-file (doto (io/file tmp-dir outpath) io/make-parents)]
          (spit out-file content)
-         (-> (core/new-fileset) (core/add-resource tmp-dir) core/commit!))))))
+         (-> (boot/new-fileset) (boot/add-resource tmp-dir) boot/commit!))))))

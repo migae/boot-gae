@@ -25,6 +25,7 @@ servers.
 * <<config,config>>
 * <<servlets,servlets>>
 * <<config-map,configuration map>>
+* <<pgming,gae programming with clojure>>
 
 [[tasks]]
 == tasks
@@ -534,3 +535,29 @@ Example:
                :role "admin"}]})
 
 ----
+
+[[pgming]]
+== gae programming with clojure
+
+You know about the https://cloud.google.com/appengine/docs/java/jrewhitelist[whitelist].  Did you notice the fine print?
+
+[NOTE]:  Note that just because a class is whitelisted here doesn't mean that all the features and operations of the class are supported for an app running in the App Engine sandbox environment.
+
+For example, this will fail with an access exception:
+
+[source,clojure]
+----
+(let [fac (javax.xml.stream.XMLInputFactory/newFactory)
+      sr (java.io.StringReader "foo")
+      xmlsreader (.createXMLStreamReader fac sr)]
+----
+
+That's because this call to `.createXMLStreamReader` cannot be
+resolved at compile time, so at runtime Clojure will try to use
+reflection to invoke the method.  The involves a call to `getMethods`
+that GAE disallows.
+
+To fix this you need to provide a type hint so that Clojure can
+resolve the call at compile time:
+
+`(.createXMLStreamReader fac ^StringReader sr)`
