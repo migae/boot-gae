@@ -382,7 +382,7 @@
   "Unpack and install the SDK zipfile"
   [v verbose bool "Print trace messages"]
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
-  (print-task "install-sdk" *opts*)
+  ;; (print-task "install-sdk" *opts*)
   (let [jar-path (pod/resolve-dependency-jar (boot/get-env)
                                              '[com.google.appengine/appengine-java-sdk "1.9.32"
                                                :extension "zip"])
@@ -551,3 +551,14 @@
   "watch for gae project"
   []
   (comp (builtin/watch) (clj-cp) (builtin/target :no-clean)))
+
+(boot/deftask build
+  "run all the boot-gae prep tasks"
+  []
+  (comp (install-sdk)
+        (libs)
+        (logging)
+        (config)
+        (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (servlets)
+        (builtin/target)))
