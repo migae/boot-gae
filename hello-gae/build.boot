@@ -143,16 +143,3 @@
        :version     +version+
        :description "Example code, boot, miraj, GAE"
        :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}})
-
-(deftask build
-  "run all the boot-gae prep tasks"
-  []
-  (comp (gae/libs)
-        (gae/logging)
-        (gae/config)
-        (sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (gae/servlets)
-        ;; (sift :include #{#"class$"} ;; retain transient clj files
-        ;;               :move {#"(.*class$)" "WEB-INF/classes/$1"})
-        ;; (target :no-clean true)
-        #_(gae/run)))
