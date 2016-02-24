@@ -1,0 +1,101 @@
+= boot-gae-example
+
+A simple https://cloud.google.com/appengine/docs/java/[Google App
+Engine] webapp, written in 100% https://clojure.org/[Clojure], built
+with http://boot-clj.com/[Boot].
+
+IMPORTANT: you do not need a GAE account to experiment!  The GAE SDK
+contains everything you need to run webapps on the local devserver;
+you only need a GAE account if you want to deploy to the production
+servers.
+
+[NOTE]
+====
+Use of App Engine services such as the Datastore is beyond the scope of
+this example.  Its sole purpose is to demonstrate the how easy it is
+to use https://github.com/migae/boot-gae[boot-gae] to get a Clojure
+webapp up and running on GAE with a repl-like development environment.
+====
+
+== getting started
+
+This project has not been pushed to clojars, so you'll need to
+fork/clone it.  It uses https://github.com/migae/boot-gae[boot-gae],
+which also has not yet been pushed to clojars, so you'll need to
+fork/clone and install that too.
+
+[source,shell]
+----
+$ git clone https://github.com/migae/boot-gae.git
+$ cd boot-gae
+$ boot pom jar install
+$ cd ..
+$ git clone https://github.com/migae/gae-hello-boot
+$ cd gae-hello-boot
+$ boot gae/install-sdk
+$ boot prep
+$ boot run
+----
+
+WARNING: The GAE java sdk is quite large, so don't be alarmed if `gae/install-sdk` takes a while to run.
+
+To get a repl-like dev environment, open a second terminal and start a
+watcher:
+
+[source,shell]
+----
+$ cd gae-hello-boot
+$ boot watch sift -i "clj$" target -d "build/WEB-INF/classes" -C
+----
+
+If you want live reloading of other resources, like css files, you'll
+need to add another watcher and adjust the -d string of `target`
+accordingly; for example:
+
+[source,shell]
+----
+$ cd gae-hello-boot
+$ boot watch sift -i "css$" target -d "build" -C
+----
+
+If you need to change the configuration, for example to add another
+servlet, you'll have to restart the server.  First run `boot prep` to
+reconfigure the webapp, then run `boot gae/run` again.
+
+== troubleshooting
+
+```
+java.lang.NoClassDefFoundError: clojure/lang/Var
+```
+
+Check `<build-root>/WEB-INF/lib` to make sure your jars are there.
+You probably did not run `gae/libs`.
+
+== the code
+
+The App Engine functions as a servlet container (it's actually a
+modified version of Jetty).  Servlet containers look on disk for
+compiled byte code when they need to load a servlet.  That means a
+Clojure webapp must aot-compile a servlet; usually this is done using
+`gen-class` in some form.
+
+You will notice that `gen-class` is nowhere to be found the Clojure
+source code of this app.  That's because it depends on the `boot-gae`
+task library, which contains a `servlets` task that uses data in
+`build.boot` to generate the appropriate `gen-class` code and
+aot-compiles it at build time.  You only have to do that once, unless
+you change the servlet configuration in `build.boot`.
+
+This is of course not the only possible technique we could use to
+implement servlets in Clojure.  `boot-gae` could easily be extended to
+suppport alternative mechanisms, but this one seems to work pretty
+well.
+
+Once you've configured a servlet in `build.boot`, you must provide an
+implementation for it.  Again there are various ways to do this; this
+sample code relies on the `defservice` macro of the
+https://ring-clojure.github.io/ring/ring.util.servlet.html[ring.util.servlet]
+component of https://github.com/ring-clojure/ring[ring].  See the
+source in `src/main/clojure/migae` for examples.
+
+See the README for https://github.com/migae/boot-gae for more info.
