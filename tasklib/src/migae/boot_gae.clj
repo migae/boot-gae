@@ -546,3 +546,8 @@
              out-file (doto (io/file tmp-dir outpath) io/make-parents)]
          (spit out-file content)
          (-> (boot/new-fileset) (boot/add-resource tmp-dir) boot/commit!))))))
+
+(boot/deftask watch
+  "watch for gae project"
+  []
+  (comp (watch) (gae/clj-cp) (target :no-clean)))
