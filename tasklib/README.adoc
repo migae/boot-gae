@@ -1,5 +1,5 @@
-boot-gae
---------
+= boot-gae
+
 
 A Boot library for Google App Engine development in Clojure.
 
@@ -19,29 +19,18 @@ contains everything you need to run webapps on the local devserver;
 you only need a GAE account if you want to deploy to the production
 servers.
 
-* <<tasks>>
 * <<usage>>
+* <<tasks>>
+* <<configuration>>
+* <<how,how it works>>
 * <<repl>>
 * <<config,config>>
 * <<servlets,servlets>>
 * <<config-map,configuration map>>
 * <<pgming,gae programming with clojure>>
 
-[[tasks]]
-== tasks
-
-* `gae/assets`          copy assets to build-dir
-* `gae/config`          configure gae xml config files
-* `gae/deploy`          install a new version of the application onto the server
-* `gae/libs`            install dependency jars in <build-dir>/WEB-INF/lib
-* `gae/install-sdk`     unpack and install the SDK zipfile
-* `gae/logging`		configure gae logging
-* `gae/run`		run devappserver
-* `gae/servlets`	aot compile master servlet file
-
-
 [[usage]]
-== usage
+= usage
 
 [source,clojure]
 .build.boot
@@ -68,8 +57,190 @@ Then you need to define a map named `gae` to configure things; see
 (def gae { ... details below ...}
 ----
 
+[[tasks]]
+= tasks
+
+* <<configs,configuration tasks>>
+ ** `<<config-appengine>>` generate gae `appengine-web.xml` config file
+ ** `<<config-webapp>>`    generate gae `web.xml` config file
+* `<<deploy>>`             install a new version of the application onto the server
+* `<<dev>>`                build for dev (includes `reloader` task)
+* `<<filters>>`            generate and aot-comile "meta-filter" files
+* `<<install-sdk>>`        unpack and install the SDK zipfile
+* `<<libs>>`               install dependency jars in <build-dir>/WEB-INF/lib
+* `<<logging>>`		   generate and install gae logging config files (e.g. `logging.properties`, `log4j.properties`)
+* `<<reloader>>`	   generate and aot-compile reloader filter
+* `<<run>>`		   run devappserver
+* `<<servlets>>`	   generate and aot-compile "meta-servlet" files
+* `<<watch>>`		   watch input, write to output on change
+
+[[configs]]
+=== configuration
+
+Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
+configuration files required by the GAE servlet container are
+automatically generated from your configuration map.  The dev server
+will automatically reload `appengine-web.xml` if it changes, but
+unfortunately the same cannot be said for `web.xml`. If you change it
+- that is, if you change your configuration map and re-run
+`gae/config` -- you need to restart the dev server.  For example:
+
+[source,shell]
+----
+$ boot gae/config target -C -d "build"
+$ boot gae/run
+----
+
+[NOTE]
+====
+For the moment you need to run gae/run as a separate step as shown here.  If you
+tack it on the end of the first boot command shown here, boot seems to
+launch the dev server before the gae/config task has completed.
+====
+
+
+[[config-appengine]]
+==== config-appengine
+
+[[config-webapp]]
+==== config-webapp
+
+[[deploy]]
+=== deploy
+
+You will obviously need a GAE account to deploy.
+
+To deploy run `$ boot gae/deploy`.
+
+[[dev]]
+=== dev
+
+[[filters]]
+=== filters
+
+[[install-sdk]]
+=== install-sdk
+
+[[libs]]
+=== libs
+
+[[logging]]
+=== logging
+
+[[reloader]]
+=== reloader
+
+[[run]]
+=== run
+
+[[servlets]]
+=== servlets
+
+Servlets can be implemented in Clojure in a variety of ways; boot-gae
+supports the technique described here out of the box, via the
+`gae/servlets` task.  That task reads the `gae` configuration map from
+`build.boot`, processes a stencil template file to generate a Clojure
+source file, and then aot compiles that source file.
+
+Here's an example:  this configuration map:
+
+[source,clojure]
+.build.boot
+----
+(def gae
+{ ...
+   :servlet-ns 'migae.servlets
+   :servlets [{:ns 'migae.echo  ;; = servlet-class
+               ;; :jsp - alternative to :ns, for using java servlet pages
+               :name "echo-servlet"
+               :display {:name "Awesome Echo Servlet"}
+               :desc {:text "blah blah"}
+               :url "/echo/*"
+               :params [{:name "greeting" :val "Hello"}]
+               :load-on-startup {:order 3}}
+
+              {:ns 'migae.math      ;; REQUIRED
+               :name "math-servlet"  ;; REQUIRED
+               :url "/math/*"      ;; REQUIRED
+               :params [{:name "op" :val "+"}
+                        {:name "arg1" :val 3}
+                        {:name "arg2" :val 2}]}]
+...}
+----
+
+will produce the following Clojure:
+
+[source,clojure]
+.migae/servlets.clj
+----
+(ns migae.servlets)
+
+(gen-class :name migae.echo
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns migae.echo)
+(gen-class :name migae.math
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns migae.math)
+
+(gen-class :name migae.reloader
+           :implements [javax.servlet.Filter]
+           :impl-ns migae.reloader)
+----
+
+[IMPORTANT]
+====
+The namespace for this file is specified by the `:servlet-ns` key of
+the `gae` config map, and the gen-class `:name` and `:impl-ns` values
+are from the `:servlets` key.  See the <<config-map,example>> below.
+
+Note that `:servlets-ns` is a little misleading; the generated file is
+not itself a servlet, it's just there to hold the `gen-class`
+operations that generate the actual servlet code.
+====
+
+[TIP]
+====
+
+By default the generated clojure file will be discarded once it has been aot compiled.  To save it, add the
+====
+
+Servlet implementations will look like this:
+
+[source,clojure]
+.migae/echo.clj
+----
+(ns migae.echo
+  (:require [clojure.math.numeric-tower :as math]
+            [compojure.core :refer :all]
+            [compojure.route :as route]
+            [ring.handler.dump :refer :all] ; ring-devel
+            [ring.util.response :as rsp]
+            [ring.util.servlet :as servlet]
+            [ring.middleware.params :refer [wrap-params]] ; in ring-core
+            [ring.middleware.defaults :refer :all])) ; ring-defaults
+
+(defroutes echo-routes
+  (context "/echo" []
+    (GET "/hello/:name" [name]
+         (-> (rsp/response (str "Hello there, " name))
+             (rsp/content-type "text/html")))
+    (route/not-found "<h1>Echo API not found</h1>")))
+
+(servlet/defservice
+   (-> (routes
+        echo-routes)
+       (wrap-defaults api-defaults)
+       ))
+----
+
+
+
+[[watch]]
+=== watch
+
+
 [[repl]]
-==== replry
+= replry
 
 Then you'll need to prepare things, as described below.  Once that's
 done, you'll no doubt want to do repl-based development: change some
@@ -175,7 +346,8 @@ be autogenned as explained in <<config>>, and the
 `migae/servlets.clj` file will be autogenned, aot-compiled, and
 discarded, as explained in <<servlets>>.
 
-== prep
+[[how]]
+== how it works
 Once your `build.boot` is set up, you need to prepared the system.
 boot-gae has a dependency on the GAE sdk, so the first time you run it
 it will be downloaded.  Don't be alarmed if it takes a while; the SDK
@@ -266,139 +438,6 @@ In short, if you have added this `prep` task definition to your
 2.  `$ boot gae/libs`
 3.  `$ boot prep`
 4.  `$ boot gae/run`
-
-[[deployment]]
-== deployment
-
-You will obviously need a GAE account to deploy.
-
-To deploy run `$ boot gae/deploy`.
-
-
-[[config]]
-=== gae/config
-
-Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
-configuration files required by the GAE servlet container are
-automatically generated from your configuration map.  The dev server
-will automatically reload `appengine-web.xml` if it changes, but
-unfortunately the same cannot be said for `web.xml`. If you change it
-- that is, if you change your configuration map and re-run
-`gae/config` -- you need to restart the dev server.  For example:
-
-[source,shell]
-----
-$ boot gae/config target -C -d "build"
-$ boot gae/run
-----
-
-[NOTE]
-====
-For the moment you need to run gae/run as a separate step as shown here.  If you
-tack it on the end of the first boot command shown here, boot seems to
-launch the dev server before the gae/config task has completed.
-====
-
-[[servlets]]
-== gae/servlets
-
-Servlets can be implemented in Clojure in a variety of ways; boot-gae
-supports the technique described here out of the box, via the
-`gae/servlets` task.  That task reads the `gae` configuration map from
-`build.boot`, processes a stencil template file to generate a Clojure
-source file, and then aot compiles that source file.
-
-Here's an example:  this configuration map:
-
-[source,clojure]
-.build.boot
-----
-(def gae
-{ ...
-   :servlet-ns 'migae.servlets
-   :servlets [{:ns 'migae.echo  ;; = servlet-class
-               ;; :jsp - alternative to :ns, for using java servlet pages
-               :name "echo-servlet"
-               :display {:name "Awesome Echo Servlet"}
-               :desc {:text "blah blah"}
-               :url "/echo/*"
-               :params [{:name "greeting" :val "Hello"}]
-               :load-on-startup {:order 3}}
-
-              {:ns 'migae.math      ;; REQUIRED
-               :name "math-servlet"  ;; REQUIRED
-               :url "/math/*"      ;; REQUIRED
-               :params [{:name "op" :val "+"}
-                        {:name "arg1" :val 3}
-                        {:name "arg2" :val 2}]}]
-...}
-----
-
-will produce the following Clojure:
-
-[source,clojure]
-.migae/servlets.clj
-----
-(ns migae.servlets)
-
-(gen-class :name migae.echo
-           :extends javax.servlet.http.HttpServlet
-           :impl-ns migae.echo)
-(gen-class :name migae.math
-           :extends javax.servlet.http.HttpServlet
-           :impl-ns migae.math)
-
-(gen-class :name migae.reloader
-           :implements [javax.servlet.Filter]
-           :impl-ns migae.reloader)
-----
-
-[IMPORTANT]
-====
-The namespace for this file is specified by the `:servlet-ns` key of
-the `gae` config map, and the gen-class `:name` and `:impl-ns` values
-are from the `:servlets` key.  See the <<config-map,example>> below.
-
-Note that `:servlets-ns` is a little misleading; the generated file is
-not itself a servlet, it's just there to hold the `gen-class`
-operations that generate the actual servlet code.
-====
-
-[TIP]
-====
-
-By default the generated clojure file will be discarded once it has been aot compiled.  To save it, add the
-====
-
-Servlet implementations will look like this:
-
-[source,clojure]
-.migae/echo.clj
-----
-(ns migae.echo
-  (:require [clojure.math.numeric-tower :as math]
-            [compojure.core :refer :all]
-            [compojure.route :as route]
-            [ring.handler.dump :refer :all] ; ring-devel
-            [ring.util.response :as rsp]
-            [ring.util.servlet :as servlet]
-            [ring.middleware.params :refer [wrap-params]] ; in ring-core
-            [ring.middleware.defaults :refer :all])) ; ring-defaults
-
-(defroutes echo-routes
-  (context "/echo" []
-    (GET "/hello/:name" [name]
-         (-> (rsp/response (str "Hello there, " name))
-             (rsp/content-type "text/html")))
-    (route/not-found "<h1>Echo API not found</h1>")))
-
-(servlet/defservice
-   (-> (routes
-        echo-routes)
-       (wrap-defaults api-defaults)
-       ))
-----
-
 
 [[config-map]]
 == configuration map
@@ -541,7 +580,9 @@ Example:
 
 You know about the https://cloud.google.com/appengine/docs/java/jrewhitelist[whitelist].  Did you notice the fine print?
 
-[NOTE]:  Note that just because a class is whitelisted here doesn't mean that all the features and operations of the class are supported for an app running in the App Engine sandbox environment.
+NOTE: Just because a class is whitelisted doesn't mean that all the
+features and operations of the class are supported for an app running
+in the App Engine sandbox environment.
 
 For example, this will fail with an access exception:
 

@@ -230,10 +230,10 @@
 ;;         arg {regex (str dest "/$1")}]
 ;;     (builtin/sift :move arg)))
 
-(boot/deftask clj-cp
-  "Copy source .clj files to <build-dir>/WEB-INF/classes"
-  []
-  (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"}))
+;; (boot/deftask clj-cp
+;;   "Copy source .clj files to <build-dir>/WEB-INF/classes"
+;;   []
+;;   (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"}))
 
 (boot/deftask config-appengine
   "generate gae appengine-web.xml"
@@ -312,30 +312,30 @@
            (spit xml-out-file content)
            (-> fileset (boot/add-resource tmp-dir) boot/commit!)))))))
 
-(boot/deftask config
-  "generate gae web.xml"
-  [d dir DIR str "output dir"
-   k keep bool str "keep intermediate .clj files"
-   v verbose bool "Print trace messages."]
-  ;; (print-task "config" *opts*)
+;; (boot/deftask config
+;;   "generate gae web.xml"
+;;   [d dir DIR str "output dir"
+;;    k keep bool str "keep intermediate .clj files"
+;;    v verbose bool "Print trace messages."]
+;;   ;; (print-task "config" *opts*)
 
-  ;; TODO: implement defaults
-  (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
-        content (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
-        odir (if dir dir web-inf-dir)]
-    ;; (println "STENCIL: " web-xml)
-    (comp
-     ;; step 1: process template, put result in new Fileset
-     (boot/with-pre-wrap fileset
-       (let [tmp-dir (boot/tmp-dir!)
-             web-xml-out-path (str odir "/web.xml")
-             web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
-             xml-out-path (str odir "/appengine-web.xml")
-             xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-             ]
-         (spit web-xml-out-file web-xml)
-         (spit xml-out-file content)
-         (-> fileset (boot/add-resource tmp-dir) boot/commit!))))))
+;;   ;; TODO: implement defaults
+;;   (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
+;;         content (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
+;;         odir (if dir dir web-inf-dir)]
+;;     ;; (println "STENCIL: " web-xml)
+;;     (comp
+;;      ;; step 1: process template, put result in new Fileset
+;;      (boot/with-pre-wrap fileset
+;;        (let [tmp-dir (boot/tmp-dir!)
+;;              web-xml-out-path (str odir "/web.xml")
+;;              web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
+;;              xml-out-path (str odir "/appengine-web.xml")
+;;              xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+;;              ]
+;;          (spit web-xml-out-file web-xml)
+;;          (spit xml-out-file content)
+;;          (-> fileset (boot/add-resource tmp-dir) boot/commit!))))))
 
      ;; ;; step 3: commit new .xml
      ;; (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
@@ -407,16 +407,16 @@
     #_(. method invoke nil invoke-args))
     )
 
-(boot/deftask deps
-  "Install dependency jars in <build-dir>/WEB-INF/lib"
-  [v verbose bool "Print traces"]
-  (print-task "deps" *opts*)
-  (println "libdir" (lib-dir))
-  (comp (builtin/uber :as-jars true)
-        #_(builtin/sift :include #{#"jar$"})))
-        ;; (builtin/target :dir #{(lib-dir)}
-        ;;                 :no-clean true)))
-;;  (boot/reset-fileset))
+;; (boot/deftask deps
+;;   "Install dependency jars in <build-dir>/WEB-INF/lib"
+;;   [v verbose bool "Print traces"]
+;;   (print-task "deps" *opts*)
+;;   (println "libdir" (lib-dir))
+;;   (comp (builtin/uber :as-jars true)
+;;         #_(builtin/sift :include #{#"jar$"})))
+;;         ;; (builtin/target :dir #{(lib-dir)}
+;;         ;;                 :no-clean true)))
+;; ;;  (boot/reset-fileset))
 
 (boot/deftask install-sdk
   "Unpack and install the SDK zipfile"
@@ -682,8 +682,8 @@
         (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
         (builtin/target :no-clean)))
 
-(boot/deftask build
-  "run all the boot-gae prep tasks"
+(boot/deftask dev
+  "make a dev build - including reloader"
   [k keep bool "keep intermediate .clj files"]
   (comp (install-sdk)
         (libs)
