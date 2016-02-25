@@ -3,6 +3,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.set :as set]
+            [clojure.pprint :as pp]
             [stencil.core :as stencil]
             [boot.user]
             [boot.pod :as pod]
@@ -234,47 +235,93 @@
   []
   (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"}))
 
-(boot/deftask logging
-  "configure gae logging"
-  [l log LOG kw ":log4j or :jul"
-   v verbose bool "Print trace messages."
-   o odir ODIR str "output dir"]
-  ;; (print-task "logging" *opts*)
-  (let [content (stencil/render-file
-                 (if (= log :log4j)
-                   "migae/boot_gae/log4j.properties.mustache"
-                   "migae/boot_gae/logging.properties.mustache")
-                   config-map)
-        odir (if odir odir
-                 (condp = log
-                   :jul web-inf-dir
-                   :log4j classes-dir
-                   nil web-inf-dir
-                   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
-        out-path (condp = log
-                   :log4j "log4j.properties"
-                   :jul "logging.properties"
-                   nil  "logging.properties")
-        mv-arg {(re-pattern out-path) (str odir "/$1")}]
-    ;; (println "STENCIL: " content)
-    ;; (println "mv pattern: " mv-arg)
-    (comp
-     (boot/with-pre-wrap fs
-       (let [tmp-dir (boot/tmp-dir!)
-             ;; _ (println "odir: " odir)
-             out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
-         (spit out-file content)
-         (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
+(boot/deftask config-appengine
+  "generate gae appengine-web.xml"
+  [d dir DIR str "output dir"
+   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+   k keep bool str "keep intermediate .clj files"
+   v verbose bool "Print trace messages."]
+  ;; (println "TASK: config-webapp")
+  (let [config-syms (if config-syms config-syms #{'appengine/config})
+        ;; _ (println "config-syms: " config-syms)
+        odir (if dir dir web-inf-dir)
+        config-map
+        (into {} (for [config-sym (seq config-syms)]
+                 (let [config-ns (symbol (namespace config-sym))]
+                   ;; (println "CONFIG-NS: " config-ns)
+                   (require config-ns)
+                   ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
+                   (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
+                   (let [config-var (if-let [v (resolve config-sym)]
+                                      v (throw
+                                         (Exception.
+                                          (str "can't find config var for: " config-sym))))
+                         configs (deref config-var)]
+                     configs))))]
+    ;; (println "meta-config map :")
+    ;; (pp/pprint config-map)
+    (let [content (stencil/render-file
+                         "migae/boot_gae/xml.appengine-web.mustache"
+                         config-map)]
+      (if verbose (println content))
+      (comp
+       (boot/with-pre-wrap fileset
+         (let [tmp-dir (boot/tmp-dir!)
+               xml-out-path (str odir "/appengine-web.xml")
+               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+               ]
+           (spit xml-out-file content)
+           (-> fileset (boot/add-resource tmp-dir) boot/commit!)))))))
+
+(boot/deftask config-webapp
+  "generate gae web.xml"
+  [d dir DIR str "output dir"
+   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+   k keep bool str "keep intermediate .clj files"
+   v verbose bool "Print trace messages."]
+;;  (println "TASK: config-webapp")
+  (let [config-syms (if config-syms config-syms #{'webapp/config})
+        ;; _ (println "config-syms: " config-syms)
+        odir (if dir dir web-inf-dir)
+
+        config-map
+        (into {} (for [config-sym (seq config-syms)]
+                 (let [config-ns (symbol (namespace config-sym))]
+                   ;; (println "CONFIG-NS: " config-ns)
+                   (require config-ns)
+                   ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
+                   (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
+                   (let [config-var (if-let [v (resolve config-sym)]
+                                      v (throw
+                                         (Exception.
+                                          (str "can't find config var for: " config-sym))))
+                         configs (deref config-var)]
+                     configs))))]
+    ;; (println "meta-config map :")
+    ;; (pp/pprint config-map)
+    (let [content (stencil/render-file
+                         "migae/boot_gae/xml.web.mustache"
+                         config-map)]
+      (if verbose (println content))
+      (comp
+       (boot/with-pre-wrap fileset
+         (let [tmp-dir (boot/tmp-dir!)
+               xml-out-path (str odir "/web.xml")
+               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+               ]
+           (spit xml-out-file content)
+           (-> fileset (boot/add-resource tmp-dir) boot/commit!)))))))
 
 (boot/deftask config
-  "configure gae xml config files"
+  "generate gae web.xml"
   [d dir DIR str "output dir"
+   k keep bool str "keep intermediate .clj files"
    v verbose bool "Print trace messages."]
   ;; (print-task "config" *opts*)
 
   ;; TODO: implement defaults
   (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
-        appengine-xml (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
+        content (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
         odir (if dir dir web-inf-dir)]
     ;; (println "STENCIL: " web-xml)
     (comp
@@ -283,11 +330,11 @@
        (let [tmp-dir (boot/tmp-dir!)
              web-xml-out-path (str odir "/web.xml")
              web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
-             appengine-xml-out-path (str odir "/appengine-web.xml")
-             appengine-xml-out-file (doto (io/file tmp-dir appengine-xml-out-path) io/make-parents)
+             xml-out-path (str odir "/appengine-web.xml")
+             xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
              ]
          (spit web-xml-out-file web-xml)
-         (spit appengine-xml-out-file appengine-xml)
+         (spit xml-out-file content)
          (-> fileset (boot/add-resource tmp-dir) boot/commit!))))))
 
      ;; ;; step 3: commit new .xml
@@ -360,13 +407,6 @@
     #_(. method invoke nil invoke-args))
     )
 
-(boot/deftask libs
-  "" []
-  (comp
-   (builtin/uber :as-jars true)
-   (builtin/sift :include #{#"zip$"} :invert true)
-   (builtin/sift :move {#"(.*\.jar$)" "WEB-INF/lib/$1"})))
-
 (boot/deftask deps
   "Install dependency jars in <build-dir>/WEB-INF/lib"
   [v verbose bool "Print traces"]
@@ -406,6 +446,82 @@
             (println "Installing unpacked SDK to: " (.getPath sdk-dir)))
           (pod/unpack-jar jar-path (.getParent sdk-dir))))
       fileset)))
+
+(boot/deftask libs
+  "" []
+  (comp
+   (builtin/uber :as-jars true)
+   (builtin/sift :include #{#"zip$"} :invert true)
+   (builtin/sift :move {#"(.*\.jar$)" "WEB-INF/lib/$1"})))
+
+(boot/deftask logging
+  "configure gae logging"
+  [l log LOG kw ":log4j or :jul"
+   v verbose bool "Print trace messages."
+   o odir ODIR str "output dir"]
+  ;; (print-task "logging" *opts*)
+  (let [content (stencil/render-file
+                 (if (= log :log4j)
+                   "migae/boot_gae/log4j.properties.mustache"
+                   "migae/boot_gae/logging.properties.mustache")
+                   config-map)
+        odir (if odir odir
+                 (condp = log
+                   :jul web-inf-dir
+                   :log4j classes-dir
+                   nil web-inf-dir
+                   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
+        out-path (condp = log
+                   :log4j "log4j.properties"
+                   :jul "logging.properties"
+                   nil  "logging.properties")
+        mv-arg {(re-pattern out-path) (str odir "/$1")}]
+    ;; (println "STENCIL: " content)
+    ;; (println "mv pattern: " mv-arg)
+    (comp
+     (boot/with-pre-wrap fs
+       (let [tmp-dir (boot/tmp-dir!)
+             ;; _ (println "odir: " odir)
+             out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
+         (spit out-file content)
+         (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
+
+(boot/deftask reloader
+  "generate reloader servlet filter"
+  [c config-sym CFG sym "config sym"
+   k keep bool "keep intermediate .clj files"
+   v verbose bool "Print trace messages."]
+  ;; (print-task "logging" *opts*)
+  (let [reloader-aot-ns 'reloader-aot
+        reloader-aot-path "reloader_aot.clj"
+        reloader-aot-content (stencil/render-file "migae/boot_gae/reloader-aot.mustache"
+                                                  {:reloader-ns reloader-aot-ns
+                                                   :reloader-impl-ns "reloader"})
+        reloader-impl-path "reloader.clj"
+        reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache" nil)]
+    (if verbose (println "impl: " reloader-impl-content))
+    (if verbose (println "aot: " reloader-aot-content))
+    (comp
+     (boot/with-pre-wrap fs
+       ;; 1. generate filter aot master
+       (let [aot-tmp-dir (boot/tmp-dir!)
+             aot-out-file (doto (io/file aot-tmp-dir reloader-aot-path) io/make-parents)
+             impl-tmp-dir (boot/tmp-dir!)
+             impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
+         (spit aot-out-file reloader-aot-content)
+         (spit impl-out-file reloader-impl-content)
+         (-> fs
+             (boot/add-source aot-tmp-dir)
+             (boot/add-asset impl-tmp-dir)
+             boot/commit!)))
+     (builtin/aot :namespace #{reloader-aot-ns})
+     (builtin/sift :include #{(re-pattern "reloader_aot.*.class")}
+                   :invert true)
+     ;; (if keep
+     ;;   (builtin/sift :to-resource #{(re-pattern reloader-aot-path)})
+     ;;   identity)
+     ;; (builtin/sift :move {#"(.*class$)" "WEB-INF/classes/$1"})
+     )))
 
 (boot/deftask run
   "Run devappserver"
@@ -499,35 +615,46 @@
 
 (boot/deftask servlets
   "aot compile master servlet file"
-  [j save bool "include source .clj files in output (default: false)"
+  [k keep bool "keep intermediate .clj files"
    ;; d odir DIR str "output dir for generated class files"
-   n aot-ns NS str "namespace to generate and aot"
-   ;; s servleter SERVELETER str "namespace for master servlet generator"
+   c config-sym SYM sym "namespaced symbol bound to meta-config data"
+   n aot-ns NS str "namespace to generate and aot; default: 'servlets"
    v verbose bool "Print trace messages."]
   ;; (print-task "servlets" *opts*)
-  (let [content (stencil/render-file "migae/boot_gae/servlets.mustache" config-map)
-        servlet-ns (if aot-ns (symbol aot-ns) (:servlet-ns config-map))
+  (let [config-sym (if config-sym config-sym 'servlets/config)
+        config-ns (symbol (namespace config-sym))
+        servlet-ns (if aot-ns (symbol aot-ns) (gensym "servlets")) ;; (:servlet-ns config-map))
         servlet-filename (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")]
-    (if verbose (println content))
-    (comp
-     (boot/with-pre-wrap fileset
-       (let [tmp-dir (boot/tmp-dir!)
-             out-file (doto (io/file tmp-dir servlet-filename) io/make-parents)]
-         (spit out-file content)
-         (-> fileset (boot/add-resource tmp-dir) boot/commit!)))
-     (builtin/aot :namespace #{servlet-ns})
-     ;;FIXME: do not hardcode WEB-INF/classes
-     (apply builtin/sift (vec (concat [:move {#"(.*class$)" "WEB-INF/classes/$1"}]
-                                      (if (not save)
-                                        [:include #{(re-pattern servlet-filename)} :invert true]))))
-     #_(fn [next-handler]
-       (fn [fs]
-         (if (not save)
-           (do (println "excluding aot clj")
-               (builtin/sift :include #{(re-pattern servlet-filename)} :invert true))))))))
-         ;; (next-handler fs))))))
-     ;; ;; #_(builtin/sift :include (if save #{#".*\.class"(re-pattern servlet-filename)}
-     ;; ;;                            #{#"\.class$"})))))
+    (println "CONFIG SYM: " config-sym)
+    (println "SERVLET NS: " servlet-ns (type servlet-ns))
+    (println "SERVLET FN: " servlet-filename)
+    (require config-ns)
+    ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
+    (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
+    (let [config-var (if-let [v (resolve config-sym)]
+                       v (throw (Exception. (str "can't find config var for: " config-sym))))
+          servlet-configs (deref config-var)
+          _ (println "servlet-configs: " servlet-configs)
+          content (stencil/render-file "migae/boot_gae/servlets.mustache"
+                                       (assoc servlet-configs
+                                              :servlet-ns servlet-ns))]
+      (if verbose (println content))
+      (comp
+       (boot/with-pre-wrap fileset
+         (let [tmp-dir (boot/tmp-dir!)
+               out-file (doto (io/file tmp-dir servlet-filename) io/make-parents)]
+           (spit out-file content)
+           (-> fileset (boot/add-source tmp-dir) boot/commit!)))
+       (builtin/aot :namespace #{servlet-ns})
+       (builtin/sift :include #{(re-pattern (str servlet-ns ".*.class"))}
+                     :invert true)
+       ;;FIXME: do not hardcode WEB-INF/classes
+       (if keep
+         (comp (builtin/sift :to-asset #{(re-pattern servlet-filename)})
+               #_(builtin/sift :move {(re-pattern (str "(" servlet-filename ")")) "WEB-INF/classes/$1"}))
+         identity)
+       (builtin/sift :move {#"(.*class$)" "WEB-INF/classes/$1"})))))
+
 
 (boot/deftask stencil
   "Process stencil templates"
@@ -550,14 +677,21 @@
 (boot/deftask watch
   "watch for gae project"
   []
-  (comp (builtin/watch) (clj-cp) (builtin/target :no-clean)))
+  (comp (builtin/watch)
+        ;; (builtin/sift :to-resource #{#".*\.clj$"})
+        (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (builtin/target :no-clean)))
 
 (boot/deftask build
   "run all the boot-gae prep tasks"
-  []
+  [k keep bool "keep intermediate .clj files"]
   (comp (install-sdk)
         (libs)
         (logging)
-        (config)
+        (config-appengine)
+        (config-webapp)
+        (reloader)
+        (servlets :keep keep)
+;;        (builtin/sift :to-resource #{#".*\.clj$"})
         (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (servlets)))
+        ))
