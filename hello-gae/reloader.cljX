@@ -1,4 +1,4 @@
-(ns hello.reloader
+(ns reloader
   (:import (javax.servlet Filter FilterChain FilterConfig
                           ServletRequest ServletResponse))
   (:require [ns-tracker.core :refer :all]))
