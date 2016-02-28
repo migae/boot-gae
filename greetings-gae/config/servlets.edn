@@ -1,14 +1,14 @@
-{:servlets [{:ns hello.echo
-             :name "echo-servlet"
-             :display {:name "Awesome Echo Servlet"}
+{:servlets [{:ns greetings.hello
+             :name "hello-servlet"
+             :display {:name "Awesome Hello Servlet"}
              :desc {:text "blah blah"}
-             :url "/echo/*"
+             :url "/hello/*"
              :params [{:name "greeting" :val "Hello"}]
              :load-on-startup {:order 3}}
 
-            {:ns hello.math
-             :name "math-servlet"
-             :url "/math/*"
+            {:ns greetings.goodbye
+             :name "goodbye-servlet"
+             :url "/goodbye/*"
              :params [{:name "op" :val "+"}
                       {:name "arg1" :val 3}
                       {:name "arg2" :val 2}]}]}

@@ -1,4 +1,2 @@
-{:display-name {:name "hello app"}
- :descr {:text "description of this web app, for web.xml etc."}
- :welcome {:file "index.html"}
+{:welcome {:file "index.html"}
  :errors [{:code 404 :url "/404.html"}]}

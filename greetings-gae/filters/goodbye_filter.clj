@@ -1,13 +1,13 @@
-(ns bar-filter
+(ns goodbye-filter
   (:import (javax.servlet Filter FilterChain FilterConfig
                           ServletRequest ServletResponse))
   (:require [ns-tracker.core :refer :all]))
 
 (defn -init [^Filter this ^FilterConfig cfg]
-  (println "bar-filter init invoked"))
+  (println "goodbye-filter init invoked"))
 
 (defn -destroy [^Filter this]
-  (println "bar-filter destroy invoked"))
+  (println "goodbye-filter destroy invoked"))
 
 (def modified-namespaces (ns-tracker ["./"]))
 
@@ -16,5 +16,5 @@
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
-  (println "bar-filter invoked for: " rqst)
+  (println "goodbye-filter invoked for: " rqst)
   (.doFilter chain rqst resp))

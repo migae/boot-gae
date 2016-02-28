@@ -1,10 +1,10 @@
-{:filters [{:ns echo_filter
-            :name "echo filter"
-            :display {:name "echo filter"}
-            :urls [{:url "/echo/*"}]
-            :desc {:text "echo filter"}}
-           {:ns math-filter
-            :name "math filter"
-            :display {:name "math filter"}
-            :urls [{:url "/math/*"}]
-            :desc {:text "math filter"}}]})
+{:filters [{:ns hello_filter
+            :name "hello filter"
+            :display {:name "hello filter"}
+            :urls [{:url "/hello/foo/*"}]
+            :desc {:text "hello filter"}}
+           {:ns goodbye_filter
+            :name "goodbye filter"
+            :display {:name "goodbye filter"}
+            :urls [{:url "/goodbye/foo/*"}]
+            :desc {:text "goodbye filter"}}]})

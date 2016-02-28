@@ -1,13 +1,13 @@
-(ns foo-filter
+(ns hello-filter
   (:import (javax.servlet Filter FilterChain FilterConfig
                           ServletRequest ServletResponse))
   (:require [ns-tracker.core :refer :all]))
 
 (defn -init [^Filter this ^FilterConfig cfg]
-  (println "foo-filter init invoked"))
+  (println "hello-filter init invoked"))
 
 (defn -destroy [^Filter this]
-  (println "foo-filter destroy invoked"))
+  (println "hello-filter destroy invoked"))
 
 (def modified-namespaces (ns-tracker ["./"]))
 
@@ -16,5 +16,5 @@
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
-  (println "foo-filter invoked for: " rqst)
+  (println "hello-filter invoked for: " rqst)
   (.doFilter chain rqst resp))

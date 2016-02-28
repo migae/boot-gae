@@ -3,7 +3,9 @@
 (def +version+ "0.1.0-SNAPSHOT")
 
 (set-env!
- :asset-paths #{"resources/public"}
+ :gae {:app-id "hello-gae-id"
+       :version "0-1-0-SNAPSHOT"}
+ :asset-paths #{"resources/public" "filters"}
  :source-paths #{"config" "src/clj"}
  ;; :source-paths #{"src"}
  ;; :resource-paths #{"resources/public" "src"}
@@ -47,15 +49,16 @@
          #_'[boot.task.built-in :as builtin])
 
 (task-options!
- gae/config-appengine {:config-syms #{'appengine/config
-                                      'appstats/config
-                                      'version/config}}
- gae/config-webapp {:config-syms #{'appstats/config
-                                   'filters/config
-                                   'security/config
-                                   'servlets/config
-                                   'webapp/config
-                                   'version/config}}
+ ;; gae/config-appengine {:config-syms #{'appengine/config
+ ;;                                      'appstats/config
+ ;;                                      'version/config}}
+ ;; gae/config-webapp {:config-syms #{'appstats/config
+ ;;                                   'filters/config
+ ;;                                   'security/config
+ ;;                                   'servlets/config
+ ;;                                   'webapp/config
+ ;;                                   'version/config}}
+
  pom  {:project     +project+
        :version     +version+
        :description "Example code, boot, miraj, GAE"
