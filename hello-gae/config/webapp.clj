@@ -5,7 +5,6 @@
    :descr {:text "description of this web app, for web.xml etc."}
    :welcome {:file "index.html"}
    :errors [{:code 404 :url "/404.html"}] ;; use :code, or:type, e.g 'java.lang.String
-   :reloader true
    ;;see http://www.opensource.apple.com/source/JBoss/JBoss-739/jakarta-tomcat-LE-jdk14/conf/web.xml
    :mime-mappings [{:ext "abs" :type "audio/x-mpeg"}
                    {:ext "gz"  :type "application/x-gzip"}

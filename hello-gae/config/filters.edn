@@ -1,0 +1,10 @@
+{:filters [{:ns echo_filter
+            :name "echo filter"
+            :display {:name "echo filter"}
+            :urls [{:url "/echo/*"}]
+            :desc {:text "echo filter"}}
+           {:ns math-filter
+            :name "math filter"
+            :display {:name "math filter"}
+            :urls [{:url "/math/*"}]
+            :desc {:text "math filter"}}]})
