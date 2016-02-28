@@ -18,18 +18,12 @@
 
 (def web-xml-edn "web.xml.edn")
 (def gae-edn "appengine.edn")
-
-;; (def ^:private deps
-;;   [['deraen/less4clj +version+]])
+(def appstats-edn "appstats.edn")
 
 (defn expand-home [s]
   (if (or (.startsWith s "~") (.startsWith s "$HOME"))
     (str/replace-first s "~" (System/getProperty "user.home"))
     s))
-
-#_(doseq [dep (filter #(str/starts-with? (.getName %) "appengine-java-sdk")
-                    (pod/resolve-dependency-jars (boot/get-env) true))]
-  (println "DEP: " (.getName dep)))
 
 (def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
                    zip (filter #(str/starts-with? (.getName %) "appengine-java-sdk") jars)
@@ -206,32 +200,12 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-(boot/deftask foo "" []
-  (boot/with-pre-wrap [fs]
-    (println "FS: " (type fs))
-    ;; (let [asset-files (->> fs boot/output-files (boot/by-ext [".clj"]))]
-    ;;      (doseq [asset asset-files] (println "foo" asset)))
-    fs))
-
-;; (boot/deftask assets
-;;   "copy assets to build-dir"
-;;   [v verbose bool "Print trace messages"
-;;    t type TYPE kw "type to move"
-;;    o odir ODIR str "output dir. default depends on file type."]
-;;   (let [regex (re-pattern (condp = type
-;;                             :clj  #"(.*clj$)"
-;;                             :cljs  #"(.*cljs$)"
-;;                             :css  #"(.*css$)"
-;;                             :html #"(.*html$)"
-;;                             :ico  #"(.*ico$)"
-;;                             :js  #"(.*js$)"
-;;                             ""))
-;;         dest (if odir odir
-;;                  (condp = type
-;;                    :clj "WEB-INF/classes"
-;;                    "./"))
-;;         arg {regex (str dest "/$1")}]
-;;     (builtin/sift :move arg)))
+;; (boot/deftask foo "" []
+;;   (boot/with-pre-wrap [fs]
+;;     (println "FS: " (type fs))
+;;     ;; (let [asset-files (->> fs boot/output-files (boot/by-ext [".clj"]))]
+;;     ;;      (doseq [asset asset-files] (println "foo" asset)))
+;;     fs))
 
 (boot/deftask clj-cp
   "Copy source .clj files to <build-dir>/WEB-INF/classes"
@@ -324,34 +298,79 @@
               (spit xml-out-file content)))))
       (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
 
-;; (boot/deftask config
-;;   "generate gae web.xml"
-;;   [d dir DIR str "output dir"
-;;    k keep bool str "keep intermediate .clj files"
-;;    v verbose bool "Print trace messages."]
-;;   ;; (print-task "config" *opts*)
+(defn- add-appstats!
+  [reloader-ns urls in-file out-file]
+  (let [spec (-> in-file slurp read-string)]
+    (util/info "Adding :appstats to %s...\n" (.getName in-file))
+    (io/make-parents out-file)
+    (let [m (-> spec
+                (assoc-in [:reloader]
+                          {:ns reloader-ns
+                           :name "reloader"
+                           :display {:name "Clojure reload filter"}
+                           :urls (if (empty? urls) [{:url "./*"}]
+                                     (merge (for [url urls] {:url url})))
+                           :desc {:text "Clojure reload filter"}}))
+          s (with-out-str (pp/pprint m))]
+    (spit out-file s))))
 
-;;   ;; TODO: implement defaults
-;;   (let [web-xml (stencil/render-file "migae/boot_gae/xml.web.mustache" config-map)
-;;         content (stencil/render-file "migae/boot_gae/xml.appengine-web.mustache" config-map)
-;;         odir (if dir dir web-inf-dir)]
-;;     ;; (println "STENCIL: " web-xml)
-;;     (comp
-;;      ;; step 1: process template, put result in new Fileset
-;;      (boot/with-pre-wrap fileset
-;;        (let [tmp-dir (boot/tmp-dir!)
-;;              web-xml-out-path (str odir "/web.xml")
-;;              web-xml-out-file (doto (io/file tmp-dir web-xml-out-path) io/make-parents)
-;;              xml-out-path (str odir "/appengine-web.xml")
-;;              xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-;;              ]
-;;          (spit web-xml-out-file web-xml)
-;;          (spit xml-out-file content)
-;;          (-> fileset (boot/add-resource tmp-dir) boot/commit!))))))
+(boot/deftask appstats
+  "enable GAE Appstats"
+  [k keep bool "keep intermediate .clj files"
+   ;; n gen-reloader-ns NS sym "ns for gen-reloader"
+   ;; r reloader-impl-ns NS sym "ns for reloader"
+   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
+   v verbose bool "Print trace messages."]
+  (let [edn-tmp (boot/tmp-dir!)
+        prev-pre (atom nil)
+        web-inf (if web-inf web-inf web-inf-dir)
 
-     ;; ;; step 3: commit new .xml
-     ;; (builtin/target :dir #{(str (:build-dir config-map) "/WEB-INF")}
-     ;;                 :no-clean true))))
+        ;; gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
+        ;; gen-reloader-path (str gen-reloader-ns ".clj")
+        ]
+    (comp
+     (boot/with-pre-wrap [fileset]
+       (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+                    boot/input-files
+                    (boot/by-name [web-xml-edn]))]
+         (if (> (count web-xml-edn-fs) 1)
+           (throw (Exception. "only one web.xml.edn file allowed")))
+         (if (= (count web-xml-edn-fs) 0)
+           (throw (Exception. "web.xml.edn file not found")))
+         (let [web-xml-edn-f (first web-xml-edn-fs)
+               web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
+               path     (boot/tmp-path web-xml-edn-f)
+               in-file  (boot/tmp-file web-xml-edn-f)
+               out-file (io/file edn-tmp path)]
+           (if (:appstats web-xml)
+             fileset
+             (do
+               ;; (add-appstats! reloader-impl-ns urls in-file out-file)
+               (let [appstats-fs (->> (boot/fileset-diff @prev-pre fileset)
+                                     boot/input-files
+                                     (boot/by-name [appstats-edn]))]
+                 (if (> (count appstats-fs) 1)
+                   (throw (Exception. (str "only one " appstats-edn " file allowed"))))
+                 (if (= (count appstats-fs) 0)
+                   (throw (Exception. (str appstats-edn " file not found"))))
+                 (let [appstats-edn-f (first appstats-fs)
+                       appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
+                   (util/info "Adding :appstats to %s...\n" (.getName in-file))
+                   (io/make-parents out-file)
+                   (let [m (-> web-xml
+                               (assoc-in [:appstats] (:appstats appstats-config)))
+                                     ;; {:ns reloader-ns
+                                     ;;  :name "reloader"
+                                     ;;  :display {:name "Clojure reload filter"}
+                                     ;;  :urls (if (empty? urls) [{:url "./*"}]
+                                     ;;            (merge (for [url urls] {:url url})))
+                                     ;;  :desc {:text "Clojure reload filter"}}))
+                         s (with-out-str (pp/pprint m))]
+                     (spit out-file s))))))))
+               (reset! prev-pre
+                       (-> fileset
+                           (boot/add-source edn-tmp)
+                           boot/commit!))))))
 
 (boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -919,6 +938,7 @@
         (libs)
         (logging)
         (clj-cp)
+        (appstats)
 ;        (filters :keep keep)
         (servlets :keep keep)
         (reloader :keep keep)
