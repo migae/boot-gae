@@ -1,10 +1,10 @@
-{:filters [{:ns hello_filter
+{:filters [{:ns hello-filter
             :name "hello filter"
             :display {:name "hello filter"}
-            :urls [{:url "/hello/foo/*"}]
+            :urls [{:url "/hello/*"}]
             :desc {:text "hello filter"}}
-           {:ns goodbye_filter
+           {:ns goodbye-filter
             :name "goodbye filter"
             :display {:name "goodbye filter"}
-            :urls [{:url "/goodbye/foo/*"}]
+            :urls [{:url "/hello/*"}]
             :desc {:text "goodbye filter"}}]})

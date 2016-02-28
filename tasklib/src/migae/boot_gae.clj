@@ -207,7 +207,7 @@
 ;;     ;;      (doseq [asset asset-files] (println "foo" asset)))
 ;;     fs))
 
-(boot/deftask clj-cp
+(boot/deftask clj
   "Copy source .clj files to <build-dir>/WEB-INF/classes"
   []
   (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
@@ -292,27 +292,28 @@
                          "migae/boot_gae/xml.appengine-web.mustache"
                          gae-map)]
             (if verbose (println content))
+            (util/info "Configuring appengine-web.xml")
             (let [xml-out-path (str dir "/appengine-web.xml")
                   xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
                   ]
               (spit xml-out-file content)))))
       (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
 
-(defn- add-appstats!
-  [reloader-ns urls in-file out-file]
-  (let [spec (-> in-file slurp read-string)]
-    (util/info "Adding :appstats to %s...\n" (.getName in-file))
-    (io/make-parents out-file)
-    (let [m (-> spec
-                (assoc-in [:reloader]
-                          {:ns reloader-ns
-                           :name "reloader"
-                           :display {:name "Clojure reload filter"}
-                           :urls (if (empty? urls) [{:url "./*"}]
-                                     (merge (for [url urls] {:url url})))
-                           :desc {:text "Clojure reload filter"}}))
-          s (with-out-str (pp/pprint m))]
-    (spit out-file s))))
+;; (defn- add-appstats!
+;;   [reloader-ns urls in-file out-file]
+;;   (let [spec (-> in-file slurp read-string)]
+;;     (util/info "Adding :appstats to %s...\n" (.getName in-file))
+;;     (io/make-parents out-file)
+;;     (let [m (-> spec
+;;                 (assoc-in [:reloader]
+;;                           {:ns reloader-ns
+;;                            :name "reloader"
+;;                            :display {:name "Clojure reload filter"}
+;;                            :urls (if (empty? urls) [{:url "./*"}]
+;;                                      (merge (for [url urls] {:url url})))
+;;                            :desc {:text "Clojure reload filter"}}))
+;;           s (with-out-str (pp/pprint m))]
+;;     (spit out-file s))))
 
 (boot/deftask appstats
   "enable GAE Appstats"
@@ -454,6 +455,7 @@
         gen-filters-tmp-dir (boot/tmp-dir!)
         gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
         gen-filters-path (str gen-filters-ns ".clj")]
+    (util/info "Configuring filters...")
     (comp
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
@@ -561,6 +563,7 @@
    v verbose bool "Print trace messages."
    o odir ODIR str "output dir"]
   ;; (print-task "logging" *opts*)
+  (util/info "Configuring logging...")
   (let [content (stencil/render-file
                  (if (= log :log4j)
                    "migae/boot_gae/log4j.properties.mustache"
@@ -774,6 +777,7 @@
    n gen-servlets-ns NS str "namespace to generate and aot; default: 'servlets"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
+  (util/info "Configuring servlets...")
   (let [edn-tmp-dir (boot/tmp-dir!)
         prev-pre (atom nil)
         ;; config-sym (if config-sym config-sym 'servlets/config)
@@ -937,9 +941,9 @@
   (comp (install-sdk)
         (libs)
         (logging)
-        (clj-cp)
+        (clj)
         (appstats)
-;        (filters :keep keep)
+        (filters :keep keep)
         (servlets :keep keep)
         (reloader :keep keep)
         (webxml)

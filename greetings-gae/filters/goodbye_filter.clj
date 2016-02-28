@@ -16,5 +16,7 @@
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
-  (println "goodbye-filter invoked for: " rqst)
-  (.doFilter chain rqst resp))
+  (println "inbound:  goodbye-filter on: " (str (.getMethod rqst) " " (.getRequestURL rqst)))
+  (.doFilter chain rqst resp)
+  (println "outbound: goodbye-filter on: " (str (.getMethod rqst) " " (.getRequestURL rqst)))
+  )

@@ -7,7 +7,7 @@
   :filter {:display {:name "Google Appstats"}
            :desc {:text "Google Appstats Filter"}
            :url "/*"
-           :params [{:name "logMessage"
+           :params [#_{:name "logMessage"
                      :val "Appstats available: /appstats/details?time={ID}"}
                     {:name "calculateRpcCosts"
                      :val true}]}
