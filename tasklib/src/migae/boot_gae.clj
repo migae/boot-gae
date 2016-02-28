@@ -16,6 +16,9 @@
 
             ;; [deraen.boot-less.version :refer [+version+]]))
 
+(def web-xml-edn "web.xml.edn")
+(def gae-edn "appengine.edn")
+
 ;; (def ^:private deps
 ;;   [['deraen/less4clj +version+]])
 
@@ -203,11 +206,11 @@
       ;; Thread.currentThread().setContextClassLoader(appengineClassloader)
       (.setContextClassLoader (Thread/currentThread) gae-class-loader))))
 
-#_(boot/deftask foo "" []
+(boot/deftask foo "" []
   (boot/with-pre-wrap [fs]
     (println "FS: " (type fs))
-    (let [asset-files (->> fs boot/output-files (boot/by-ext [".clj"]))]
-         (doseq [asset asset-files] (println "foo" asset)))
+    ;; (let [asset-files (->> fs boot/output-files (boot/by-ext [".clj"]))]
+    ;;      (doseq [asset asset-files] (println "foo" asset)))
     fs))
 
 ;; (boot/deftask assets
@@ -230,87 +233,96 @@
 ;;         arg {regex (str dest "/$1")}]
 ;;     (builtin/sift :move arg)))
 
-;; (boot/deftask clj-cp
-;;   "Copy source .clj files to <build-dir>/WEB-INF/classes"
-;;   []
-;;   (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"}))
+(boot/deftask clj-cp
+  "Copy source .clj files to <build-dir>/WEB-INF/classes"
+  []
+  (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
+                       :to-asset #{#"clj$"}))
 
-(boot/deftask config-appengine
+(boot/deftask aot
+  "Built-in aot does not allow custom *compile-path*"
+
+  [a all          bool   "Compile all namespaces."
+   d dir PATH str "where to place generated class files"
+   n namespace NS #{sym} "The set of namespaces to compile."]
+
+  (let [tgt         (boot/tmp-dir!)
+        dir         (if dir dir "")
+        out-dir     (io/file tgt dir)
+        foo         (doto (io/file out-dir "foo") io/make-parents)
+        pod-env     (update-in (boot/get-env) [:directories] conj (.getPath out-dir))
+        compile-pod (future (pod/make-pod pod-env))]
+    (boot/with-pre-wrap [fs]
+      (boot/empty-dir! tgt)
+      (let [all-nses (->> fs boot/fileset-namespaces)
+            nses     (->> all-nses (set/intersection (if all all-nses namespace)) sort)]
+        (pod/with-eval-in @compile-pod
+          (require '[clojure.java.io :as io])
+          (let [foo ~(.getPath foo)]
+            (io/make-parents (io/as-file foo))
+            ;;(pod/add-classpath (io/as-file outdir))
+            (binding [*compile-path* ~(.getPath out-dir)]
+              (doseq [[idx ns] (map-indexed vector '~nses)]
+                (boot.util/info "Compiling %s/%s %s...\n" (inc idx) (count '~nses) ns)
+                (compile ns)))))
+        (-> fs (boot/add-resource tgt) boot/commit!)))))
+
+(boot/deftask appengine
   "generate gae appengine-web.xml"
-  [d dir DIR str "output dir"
-   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+  [c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+   d dir DIR str "output dir"
    k keep bool str "keep intermediate .clj files"
    v verbose bool "Print trace messages."]
-  ;; (println "TASK: config-webapp")
-  (let [config-syms (if config-syms config-syms #{'appengine/config})
-        ;; _ (println "config-syms: " config-syms)
-        odir (if dir dir web-inf-dir)
-        config-map
-        (into {} (for [config-sym (seq config-syms)]
-                 (let [config-ns (symbol (namespace config-sym))]
-                   ;; (println "CONFIG-NS: " config-ns)
-                   (require config-ns)
-                   ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
-                   (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
-                   (let [config-var (if-let [v (resolve config-sym)]
-                                      v (throw
-                                         (Exception.
-                                          (str "can't find config var for: " config-sym))))
-                         configs (deref config-var)]
-                     configs))))]
-    ;; (println "meta-config map :")
-    ;; (pp/pprint config-map)
-    (let [content (stencil/render-file
+  (let [tmp-dir (boot/tmp-dir!)
+        prev-pre (atom nil)
+        dir (if dir dir web-inf-dir)]
+    (boot/with-pre-wrap fileset
+      (let [gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+                       boot/input-files
+                       (boot/by-name [gae-edn]))]
+        (if (> (count gae-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
+        (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
+
+        (let [gae-edn-f (first gae-edn-fs)
+              gae-map (-> (boot/tmp-file gae-edn-f) slurp read-string)
+              ;; path     (boot/tmp-path gae-edn-f)
+              ;; in-file  (boot/tmp-file gae-edn-f)
+              ;; out-file (io/file tmp-dir path)
+
+              gae-map (assoc gae-map
+                             :app-id (-> (boot/get-env) :gae :app-id)
+                             :version (-> (boot/get-env) :gae :version))
+
+              ;; _ (println "GAEXML: " gae-map)
+
+              ;; (let [config-syms (if config-syms config-syms #{'appengine/config})
+              ;;       ;; _ (println "config-syms: " config-syms)
+              ;;       dir (if dir dir web-inf-dir)
+              ;;       config-map
+              ;;       (into {} (for [config-sym (seq config-syms)]
+              ;;                (let [config-ns (symbol (namespace config-sym))]
+              ;;                  ;; (println "CONFIG-NS: " config-ns)
+              ;;                  (require config-ns)
+              ;;                  ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
+              ;;                  (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
+              ;;                  (let [config-var (if-let [v (resolve config-sym)]
+              ;;                                     v (throw
+              ;;                                        (Exception.
+              ;;                                         (str "can't find config var for: " config-sym))))
+              ;;                        configs (deref config-var)]
+              ;;                    configs))))]
+              ;;   ;; (println "meta-config map :")
+              ;;   ;; (pp/pprint config-map)
+              ]
+          (let [content (stencil/render-file
                          "migae/boot_gae/xml.appengine-web.mustache"
-                         config-map)]
-      (if verbose (println content))
-      (comp
-       (boot/with-pre-wrap fileset
-         (let [tmp-dir (boot/tmp-dir!)
-               xml-out-path (str odir "/appengine-web.xml")
-               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-               ]
-           (spit xml-out-file content)
-           (-> fileset (boot/add-resource tmp-dir) boot/commit!)))))))
-
-(boot/deftask config-webapp
-  "generate gae web.xml"
-  [d dir DIR str "output dir"
-   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
-   k keep bool str "keep intermediate .clj files"
-   v verbose bool "Print trace messages."]
-;;  (println "TASK: config-webapp")
-  (let [config-syms (if config-syms config-syms #{'webapp/config})
-        ;; _ (println "config-syms: " config-syms)
-        odir (if dir dir web-inf-dir)
-
-        config-map
-        (into {} (for [config-sym (seq config-syms)]
-                 (let [config-ns (symbol (namespace config-sym))]
-                   ;; (println "CONFIG-NS: " config-ns)
-                   (require config-ns)
-                   ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
-                   (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
-                   (let [config-var (if-let [v (resolve config-sym)]
-                                      v (throw
-                                         (Exception.
-                                          (str "can't find config var for: " config-sym))))
-                         configs (deref config-var)]
-                     configs))))]
-    ;; (println "meta-config map :")
-    ;; (pp/pprint config-map)
-    (let [content (stencil/render-file
-                         "migae/boot_gae/xml.web.mustache"
-                         config-map)]
-      (if verbose (println content))
-      (comp
-       (boot/with-pre-wrap fileset
-         (let [tmp-dir (boot/tmp-dir!)
-               xml-out-path (str odir "/web.xml")
-               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-               ]
-           (spit xml-out-file content)
-           (-> fileset (boot/add-resource tmp-dir) boot/commit!)))))))
+                         gae-map)]
+            (if verbose (println content))
+            (let [xml-out-path (str dir "/appengine-web.xml")
+                  xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+                  ]
+              (spit xml-out-file content)))))
+      (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
 
 ;; (boot/deftask config
 ;;   "generate gae web.xml"
@@ -407,16 +419,86 @@
     #_(. method invoke nil invoke-args))
     )
 
-;; (boot/deftask deps
-;;   "Install dependency jars in <build-dir>/WEB-INF/lib"
-;;   [v verbose bool "Print traces"]
-;;   (print-task "deps" *opts*)
-;;   (println "libdir" (lib-dir))
-;;   (comp (builtin/uber :as-jars true)
-;;         #_(builtin/sift :include #{#"jar$"})))
-;;         ;; (builtin/target :dir #{(lib-dir)}
-;;         ;;                 :no-clean true)))
-;; ;;  (boot/reset-fileset))
+(boot/deftask filters
+  "generate filters; update web.xml.edn with filter config data"
+
+  [k keep bool "keep intermediate .clj files"
+   n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
+   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
+   v verbose bool "Print trace messages."]
+  (let [edn-tmp-dir (boot/tmp-dir!)
+        prev-pre (atom nil)
+        ;; config-sym (if config-sym config-sym 'filters/config)
+        ;; config-ns (symbol (namespace config-sym))
+        web-inf (if web-inf web-inf web-inf-dir)
+        filters-edn "filters.edn"
+        gen-filters-tmp-dir (boot/tmp-dir!)
+        gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
+        gen-filters-path (str gen-filters-ns ".clj")]
+    (comp
+     (boot/with-pre-wrap [fileset]
+       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                    boot/input-files
+                    (boot/by-name [web-xml-edn]))]
+         (if (> (count web-xml-edn-files) 1)
+           (throw (Exception. "only one web.xml.edn file allowed")))
+         (if (= (count web-xml-edn-files) 0)
+           (throw (Exception. "cannot find web.xml.edn")))
+
+         (let [web-xml-edn-f (first web-xml-edn-files)
+               web-xml-edn-c (-> (boot/tmp-file web-xml-edn-f) slurp read-string)]
+           (if (:filters web-xml-edn-c)
+             fileset
+             (do
+               ;; step 0: read the edn files
+               (let [filters-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                            boot/input-files
+                            (boot/by-name [filters-edn]))]
+                 (if (> (count filters-edn-files) 1)
+                   (throw (Exception. "only one filters.edn file allowed")))
+                 (if (= (count filters-edn-files) 0)
+                   (throw (Exception. "cannot find filters.edn")))
+
+                 (let [edn-filters-f (first filters-edn-files)
+                       filter-configs (-> (boot/tmp-file edn-filters-f) slurp read-string)
+                       smap (-> web-xml-edn-c (assoc-in [:filters]
+                                                        (:filters filter-configs)))
+                       web-xml-edn-s (with-out-str (pp/pprint smap))]
+                   ;; step 1:  inject filter config stanza to web.xml.edn
+                   (let [path     (boot/tmp-path web-xml-edn-f)
+                         web-xml-edn-in-file  (boot/tmp-file web-xml-edn-f)
+                         web-xml-edn-out-file (io/file edn-tmp-dir path)]
+                     (io/make-parents web-xml-edn-out-file)
+                     (spit web-xml-edn-out-file web-xml-edn-s))
+
+                   ;; step 2: gen filters
+                   (let [gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
+                                                                   (assoc filter-configs
+                                                                          :gen-filters-ns
+                                                                          gen-filters-ns))
+                         gen-filters-out-file (doto
+                                                   (io/file gen-filters-tmp-dir gen-filters-path)
+                                                 io/make-parents)]
+                     (spit gen-filters-out-file gen-filters-content))))))))
+
+       ;; step 3: commit files to fileset
+       (reset! prev-pre
+               (-> fileset
+                   (boot/add-source edn-tmp-dir)
+                   (boot/add-source gen-filters-tmp-dir)
+                   boot/commit!)))
+     (aot :namespace #{gen-filters-ns} :dir (str web-inf "/classes"))
+     ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
+     (if keep
+       identity
+       (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
+                     :invert true))
+     (if keep
+       (comp
+        (builtin/sift :to-resource #{(re-pattern web-xml-edn)})
+        (builtin/sift :to-asset #{(re-pattern gen-filters-path)}))
+       identity)
+     )))
 
 (boot/deftask install-sdk
   "Unpack and install the SDK zipfile"
@@ -486,41 +568,89 @@
          (spit out-file content)
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
+(defn- add-reloader!
+  [reloader-ns urls in-file out-file]
+  (let [spec (-> in-file slurp read-string)]
+    (util/info "Adding :reloader to %s...\n" (.getName in-file))
+    (io/make-parents out-file)
+    (let [m (-> spec
+                (assoc-in [:reloader]
+                          {:ns reloader-ns
+                           :name "reloader"
+                           :display {:name "Clojure reload filter"}
+                           :urls (if (empty? urls) [{:url "./*"}]
+                                     (merge (for [url urls] {:url url})))
+                           :desc {:text "Clojure reload filter"}}))
+          s (with-out-str (pp/pprint m))]
+    (spit out-file s))))
+
 (boot/deftask reloader
   "generate reloader servlet filter"
-  [c config-sym CFG sym "config sym"
-   k keep bool "keep intermediate .clj files"
+  [k keep bool "keep intermediate .clj files"
+   n gen-reloader-ns NS sym "ns for gen-reloader"
+   r reloader-impl-ns NS sym "ns for reloader"
+   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  ;; (print-task "logging" *opts*)
-  (let [reloader-aot-ns 'reloader-aot
-        reloader-aot-path "reloader_aot.clj"
-        reloader-aot-content (stencil/render-file "migae/boot_gae/reloader-aot.mustache"
-                                                  {:reloader-ns reloader-aot-ns
-                                                   :reloader-impl-ns "reloader"})
-        reloader-impl-path "reloader.clj"
-        reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache" nil)]
-    (if verbose (println "impl: " reloader-impl-content))
-    (if verbose (println "aot: " reloader-aot-content))
+  (let [edn-tmp (boot/tmp-dir!)
+        prev-pre (atom nil)
+        web-inf (if web-inf web-inf web-inf-dir)
+
+        gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
+        gen-reloader-path (str gen-reloader-ns ".clj")
+        reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) (gensym "reloader"))
+        reloader-impl-path (str web-inf "/classes/" reloader-impl-ns ".clj")
+        ]
     (comp
-     (boot/with-pre-wrap fs
-       ;; 1. generate filter aot master
-       (let [aot-tmp-dir (boot/tmp-dir!)
-             aot-out-file (doto (io/file aot-tmp-dir reloader-aot-path) io/make-parents)
-             impl-tmp-dir (boot/tmp-dir!)
-             impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
-         (spit aot-out-file reloader-aot-content)
-         (spit impl-out-file reloader-impl-content)
-         (-> fs
-             (boot/add-source aot-tmp-dir)
-             (boot/add-asset impl-tmp-dir)
-             boot/commit!)))
-     (builtin/aot :namespace #{reloader-aot-ns})
-     (builtin/sift :include #{(re-pattern "reloader_aot.*.class")}
-                   :invert true)
-     ;; (if keep
-     ;;   (builtin/sift :to-resource #{(re-pattern reloader-aot-path)})
-     ;;   identity)
-     ;; (builtin/sift :move {#"(.*class$)" "WEB-INF/classes/$1"})
+     (boot/with-pre-wrap [fileset]
+       (let [f (->> (boot/fileset-diff @prev-pre fileset)
+                    boot/input-files
+                    (boot/by-name [web-xml-edn]))]
+         (if (> (count f) 1)
+           (throw (Exception. "only one web.xml.edn file allowed")))
+         (if (= (count f) 0)
+           (throw (Exception. "web.xml.edn file not found")))
+         (let [web-xml-edn-f (first f)
+               web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
+               urls (map #(:url %) (:servlets web-xml))
+               path     (boot/tmp-path web-xml-edn-f)
+               in-file  (boot/tmp-file web-xml-edn-f)
+               out-file (io/file edn-tmp path)]
+           (if (:reloader web-xml)
+             fileset
+             (do
+               (add-reloader! reloader-impl-ns urls in-file out-file)
+               (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
+                                                                {:reloader-ns reloader-impl-ns})
+
+                     gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
+                                                               {:gen-reloader-ns gen-reloader-ns
+                                                                :reloader-impl-ns reloader-impl-ns})
+                     _ (if verbose (println "impl: " reloader-impl-path))
+                     _ (if verbose (println "impl: " reloader-impl-content))
+                     _ (if verbose (println "gen: " gen-reloader-path))
+                     _ (if verbose (println "gen: " gen-reloader-content))
+
+                     aot-tmp-dir (boot/tmp-dir!)
+                     aot-out-file (doto (io/file aot-tmp-dir gen-reloader-path) io/make-parents)
+                     impl-tmp-dir (boot/tmp-dir!)
+                     impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
+                 (spit aot-out-file gen-reloader-content)
+                 (spit impl-out-file reloader-impl-content)
+                 (reset! prev-pre
+                         (-> fileset
+                     (boot/add-source edn-tmp)
+                     (boot/add-source aot-tmp-dir)
+                     (boot/add-asset impl-tmp-dir)
+                     boot/commit!))))))))
+     (aot :namespace #{gen-reloader-ns} :dir (str web-inf "/classes"))
+;;     (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
+     (if keep identity
+         (builtin/sift :include #{(re-pattern (str gen-reloader-ns ".*.class$"))}
+                       :invert true))
+     (if keep (builtin/sift :to-resource #{(re-pattern gen-reloader-path)})
+         identity)
+     (if keep (builtin/sift :to-resource #{(re-pattern ".*web.xml.edn$")})
+         identity)
      )))
 
 (boot/deftask run
@@ -614,71 +744,171 @@
     ))))
 
 (boot/deftask servlets
-  "aot compile master servlet file"
+  "generate servlets; update web.xml.edn with servlet config data"
+
+  ;; both subtasks require reading of servlets.edn
+  ;; read from resources if avail, otherwise input
+
   [k keep bool "keep intermediate .clj files"
    ;; d odir DIR str "output dir for generated class files"
-   c config-sym SYM sym "namespaced symbol bound to meta-config data"
-   n aot-ns NS str "namespace to generate and aot; default: 'servlets"
+   ;; c config-sym SYM sym "namespaced symbol bound to meta-config data"
+   n gen-servlets-ns NS str "namespace to generate and aot; default: 'servlets"
+   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  ;; (print-task "servlets" *opts*)
-  (let [config-sym (if config-sym config-sym 'servlets/config)
-        config-ns (symbol (namespace config-sym))
-        servlet-ns (if aot-ns (symbol aot-ns) (gensym "servlets")) ;; (:servlet-ns config-map))
-        servlet-filename (str (str/replace servlet-ns #"\.|-" {"." "/" "-" "_"}) ".clj")]
-    (println "CONFIG SYM: " config-sym)
-    (println "SERVLET NS: " servlet-ns (type servlet-ns))
-    (println "SERVLET FN: " servlet-filename)
-    (require config-ns)
-    ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
-    (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
-    (let [config-var (if-let [v (resolve config-sym)]
-                       v (throw (Exception. (str "can't find config var for: " config-sym))))
-          servlet-configs (deref config-var)
-          _ (println "servlet-configs: " servlet-configs)
-          content (stencil/render-file "migae/boot_gae/servlets.mustache"
-                                       (assoc servlet-configs
-                                              :servlet-ns servlet-ns))]
-      (if verbose (println content))
-      (comp
-       (boot/with-pre-wrap fileset
-         (let [tmp-dir (boot/tmp-dir!)
-               out-file (doto (io/file tmp-dir servlet-filename) io/make-parents)]
-           (spit out-file content)
-           (-> fileset (boot/add-source tmp-dir) boot/commit!)))
-       (builtin/aot :namespace #{servlet-ns})
-       (builtin/sift :include #{(re-pattern (str servlet-ns ".*.class"))}
-                     :invert true)
-       ;;FIXME: do not hardcode WEB-INF/classes
-       (if keep
-         (comp (builtin/sift :to-asset #{(re-pattern servlet-filename)})
-               #_(builtin/sift :move {(re-pattern (str "(" servlet-filename ")")) "WEB-INF/classes/$1"}))
-         identity)
-       (builtin/sift :move {#"(.*class$)" "WEB-INF/classes/$1"})))))
-
-
-(boot/deftask stencil
-  "Process stencil templates"
-  [s stencil STENCIL str "Path to a stencil (mustache) template. Must be on classpath."
-   d data DATA edn "A data map."
-   o outpath OUTPATH str "File path for output."
-   v verbose bool "Print trace messages."]
-  (print-task "stencil" *opts*)
-  (let [content (stencil/render-file stencil data)]
-    ;; (println "STENCIL: " content)
+  (let [edn-tmp-dir (boot/tmp-dir!)
+        prev-pre (atom nil)
+        ;; config-sym (if config-sym config-sym 'servlets/config)
+        ;; config-ns (symbol (namespace config-sym))
+        web-inf (if web-inf web-inf web-inf-dir)
+        servlets-edn "servlets.edn"
+        gen-servlets-tmp-dir (boot/tmp-dir!)
+        gen-servlets-ns (if gen-servlets-ns (symbol gen-servlets-ns) (gensym "servletsgen"))
+        gen-servlets-path (str gen-servlets-ns ".clj")]
     (comp
-     ;; step 1: process template, put result in new Fileset
-     (boot/with-pre-wrap fileset
-       (let [tmp-dir (boot/tmp-dir!)
-             ;; out-path (str (str/replace outpath #"\.|-" {"." "/" "-" "_"}))
-             out-file (doto (io/file tmp-dir outpath) io/make-parents)]
-         (spit out-file content)
-         (-> (boot/new-fileset) (boot/add-resource tmp-dir) boot/commit!))))))
+     (boot/with-pre-wrap [fileset]
+       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                    boot/input-files
+                    (boot/by-name [web-xml-edn]))]
+         (if (> (count web-xml-edn-files) 1)
+           (throw (Exception. "only one web.xml.edn file allowed")))
+         (if (= (count web-xml-edn-files) 0)
+           (throw (Exception. "cannot find web.xml.edn")))
+
+         (let [web-xml-edn-f (first web-xml-edn-files)
+               web-xml-edn-c (-> (boot/tmp-file web-xml-edn-f) slurp read-string)]
+           (if (:servlets web-xml-edn-c)
+             fileset
+             (do
+               ;; step 0: read the edn files
+               (let [servlets-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                            boot/input-files
+                            (boot/by-name [servlets-edn]))]
+                 (if (> (count servlets-edn-files) 1)
+                   (throw (Exception. "only one servlets.edn file allowed")))
+                 (if (= (count servlets-edn-files) 0)
+                   (throw (Exception. "cannot find servlets.edn")))
+
+                 (let [edn-servlets-f (first servlets-edn-files)
+                       servlet-configs (-> (boot/tmp-file edn-servlets-f) slurp read-string)
+                       smap (-> web-xml-edn-c (assoc-in [:servlets]
+                                                        (:servlets servlet-configs)))
+                                         ;; {:ns reloader-ns
+                                         ;;  :name "reloader"
+                                         ;;  :display {:name "Clojure reload filter"}
+                                         ;;  :urls (vec urls)
+                                         ;;  :desc {:text "Clojure reload filter"}}))
+                       web-xml-edn-s (with-out-str (pp/pprint smap))]
+                   ;; step 1:  inject servlet config stanza to web.xml.edn
+                   (let [path     (boot/tmp-path web-xml-edn-f)
+                         web-xml-edn-in-file  (boot/tmp-file web-xml-edn-f)
+                         web-xml-edn-out-file (io/file edn-tmp-dir path)]
+                     (io/make-parents web-xml-edn-out-file)
+                     (spit web-xml-edn-out-file web-xml-edn-s))
+
+                   ;; step 2: gen servlets
+                   (let [gen-servlets-content (stencil/render-file "migae/boot_gae/gen-servlets.mustache"
+                                                                   (assoc servlet-configs
+                                                                          :gen-servlets-ns
+                                                                          gen-servlets-ns))
+                         gen-servlets-out-file (doto
+                                                   (io/file gen-servlets-tmp-dir gen-servlets-path)
+                                                 io/make-parents)]
+                     (spit gen-servlets-out-file gen-servlets-content))))))))
+
+       ;; step 3: commit files to fileset
+       (reset! prev-pre
+               (-> fileset
+                   (boot/add-source edn-tmp-dir)
+                   (boot/add-source gen-servlets-tmp-dir)
+                   boot/commit!)))
+     (aot :namespace #{gen-servlets-ns} :dir (str web-inf "/classes"))
+     ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
+     (if keep
+       identity
+       (builtin/sift :include #{(re-pattern (str gen-servlets-ns ".*.class"))}
+                     :invert true))
+     (if keep
+       (comp
+        (builtin/sift :to-resource #{(re-pattern web-xml-edn)})
+        (builtin/sift :to-asset #{(re-pattern gen-servlets-path)}))
+       identity)
+     )))
+
+(boot/deftask webxml
+  "generate gae web.xml"
+  [d dir DIR str "output dir"
+   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+   k keep bool str "keep intermediate .clj files"
+   r reloader bool "install reloader filter"
+   v verbose bool "Print trace messages."]
+;;  (println "TASK: config-webapp")
+  (let [edn-tmp (boot/tmp-dir!)
+        prev-pre (atom nil)
+        odir (if dir dir web-inf-dir)]
+    (boot/with-pre-wrap fileset
+      (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+                       boot/input-files
+                       (boot/by-name [web-xml-edn]))]
+        (if (> (count web-xml-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
+        (if (= (count web-xml-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
+
+        (let [web-xml-edn-f (first web-xml-edn-fs)
+              web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
+              path     (boot/tmp-path web-xml-edn-f)
+              in-file  (boot/tmp-file web-xml-edn-f)
+              out-file (io/file edn-tmp path)
+
+              ;; _ (println "WEBXML: " web-xml)
+
+            ;; in-file  (boot/tmp-file (first edn-f))
+            ;; edn (-> in-file slurp read-string)
+
+            ;; config-syms (:config-syms edn)
+            ;; ;; config-syms (if config-syms config-syms #{'webapp/config})
+
+            ;; _ (println "config-syms: " config-syms)
+
+              ;; config-map
+              ;; (into {} (for [config-sym (seq config-syms)]
+              ;;            (let [config-ns (symbol (namespace config-sym))]
+              ;;              ;; (println "CONFIG-NS: " config-ns)
+              ;;              (require config-ns)
+              ;;              ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
+              ;;              (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
+              ;;              (let [config-var (if-let [v (resolve config-sym)]
+              ;;                                 v (throw
+              ;;                                    (Exception.
+              ;;                                     (str "can't find config var for: " config-sym))))
+              ;;                    configs (deref config-var)]
+              ;;                configs))))
+
+            ;; config-map (if (:reloader edn)
+            ;;              (assoc config-map :reloader (:reloader edn))
+            ;;              config-map)]
+              ]
+          ;; (println "meta-config map :")
+          ;; (pp/pprint config-map)
+          (let [content (stencil/render-file
+                         "migae/boot_gae/xml.web.mustache"
+                         web-xml #_config-map)]
+            (if verbose (println content))
+            (let [;;tmp-dir (boot/tmp-dir!)
+                  xml-out-path (str odir "/web.xml")
+                  xml-out-file (doto (io/file edn-tmp xml-out-path) io/make-parents)
+                  ;; reloader (doto (io/file tmp-dir "foobar.xml") io/make-parents)
+                  ]
+           ;; web.xml always
+           ;; (if (.exists reloader)
+           ;;   nop
+           ;;   create empty reloader
+              (spit xml-out-file content)))))
+      (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
 
 (boot/deftask watch
   "watch for gae project"
   []
   (comp (builtin/watch)
-        ;; (builtin/sift :to-resource #{#".*\.clj$"})
+        (builtin/sift :to-resource #{#".*\.clj$"})
         (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
         (builtin/target :no-clean)))
 
@@ -688,10 +918,20 @@
   (comp (install-sdk)
         (libs)
         (logging)
-        (config-appengine)
-        (config-webapp)
-        (reloader)
+        (clj-cp)
+;        (filters :keep keep)
         (servlets :keep keep)
-;;        (builtin/sift :to-resource #{#".*\.clj$"})
-        (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (reloader :keep keep)
+        (webxml)
+        (appengine)
+        ))
+
+(boot/deftask webapp-test
+  ""
+  [k keep bool "keep intermediate files"]
+  (comp (filters :keep keep)
+        (servlets :keep keep)
+        (reloader :keep keep)
+        ;; (webxml)
+        (appengine)
         ))

@@ -3,11 +3,11 @@
   <application>{{app-id}}</application>
   <version>{{version}}</version>
 
-  {{#appengine.thread-safe}}
+  {{#thread-safe}}
   <threadsafe>true</threadsafe>
-  {{/appengine.thread-safe}}
+  {{/thread-safe}}
 
-  {{#appengine.resource-files}}
+  {{#resource-files}}
   <resource-files>
     {{#include}}
     <include path="{{path}}"
@@ -28,9 +28,9 @@
     </exclude>
     {{/exclude}}
   </resource-files>
-  {{/appengine.resource-files}}
+  {{/resource-files}}
 
-  {{#appengine.static-files}}
+  {{#static-files}}
   <static-files>
     {{#include}}
     <include path="{{path}}"
@@ -51,35 +51,40 @@
     </exclude>
     {{/exclude}}
   </static-files>
-  {{/appengine.static-files}}
+  {{/static-files}}
 
-  {{#appengine.system-properties}}
+  {{#system-properties}}
   <system-properties>
     {{#props}}
     <property name="{{name}}"
 	      value="{{value}}" />
     {{/props}}
-    {{#appengine.logging.jul}}
-    <property name="{{name}}"
-	      value="{{value}}" />
-    {{/appengine.logging.jul}}
-    {{#appengine.logging.log4j}}
-    <property name="{{name}}"
-	      value="{{value}}" />
-    {{/appengine.logging.log4j}}
   </system-properties>
-  {{/appengine.system-properties}}
+  {{/system-properties}}
 
+  {{#logging.jul}}
+  <system-properties>
+    <property name="{{name}}"
+	      value="{{value}}" />
+  </system-properties>
+  {{/logging.jul}}
+
+  {{#logging.log4j}}
+  <system-properties>
+    <property name="{{name}}"
+	      value="{{value}}" />
+  </system-properties>
+  {{/logging.log4j}}
 
   <env-variables>
-    {{#appengine.env-vars}}
+    {{#env-vars}}
     <env-var name="{{name}}" value="{{value}}" />
-    {{/appengine.env-vars}}
+    {{/env-vars}}
   </env-variables>
 
-  {{#appengine.ssl}}
+  {{#ssl}}
   <ssl-enabled>true</ssl-enabled>
-  {{/appengine.ssl}}
+  {{/ssl}}
 
   {{#appstats.admin-console}}
   <admin-console>

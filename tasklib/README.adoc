@@ -19,7 +19,11 @@ contains everything you need to run webapps on the local devserver;
 you only need a GAE account if you want to deploy to the production
 servers.
 
-* <<usage>>
+= overview
+
+=== toc
+
+* <<start,getting started>>
 * <<tasks>>
 * <<configuration>>
 * <<how,how it works>>
@@ -29,8 +33,12 @@ servers.
 * <<config-map,configuration map>>
 * <<pgming,gae programming with clojure>>
 
-[[usage]]
-= usage
+[[start]]
+= getting started
+
+Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
+the repo.  It contains `tasklib`, the task lib itself, and
+`hello-gae`, a test/demo program that uses the tasklib.
 
 [source,clojure]
 .build.boot
@@ -65,13 +73,14 @@ Then you need to define a map named `gae` to configure things; see
  ** `<<config-webapp>>`    generate gae `web.xml` config file
 * `<<deploy>>`             install a new version of the application onto the server
 * `<<dev>>`                build for dev (includes `reloader` task)
-* `<<filters>>`            generate and aot-comile "meta-filter" files
+* `<<filters>>`            generate a "meta-filter" file with gen-class directives and aot-compile it to generate filters
 * `<<install-sdk>>`        unpack and install the SDK zipfile
 * `<<libs>>`               install dependency jars in <build-dir>/WEB-INF/lib
 * `<<logging>>`		   generate and install gae logging config files (e.g. `logging.properties`, `log4j.properties`)
-* `<<reloader>>`	   generate and aot-compile reloader filter
+* `<<prod>>`		   build for production (without `reloader` task)
+* `<<reloader>>`	   generate and aot-compile reloader filter used to support reload-on-refresh
 * `<<run>>`		   run devappserver
-* `<<servlets>>`	   generate and aot-compile "meta-servlet" files
+* `<<servlets>>`	   generate a "meta-servlet" file with gen-class directives and aot-compile it to produce servlets
 * `<<watch>>`		   watch input, write to output on change
 
 [[configs]]

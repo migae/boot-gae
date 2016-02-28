@@ -1,0 +1,9 @@
+(ns {{gen-servlets-ns}})
+
+{{#servlets}}
+(gen-class :name {{ns}}
+           :extends javax.servlet.http.HttpServlet
+           :impl-ns {{ns}})
+
+{{/servlets}}
+

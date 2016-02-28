@@ -12,10 +12,10 @@
                    [boot/core "2.5.2" :scope "provided"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
-                   [com.google.appengine/appengine-java-sdk "LATEST" ;; "1.9.32"
+                   [com.google.appengine/appengine-java-sdk "LATEST"
                     :scope "provided" :extension "zip"]
                    ;; we need this so we can import KickStart:
-                   [com.google.appengine/appengine-tools-sdk "LATEST"]]) ;;"1.9.32"
+                   [com.google.appengine/appengine-tools-sdk "LATEST"]])
 
 (task-options!
  target {:dir "build"}

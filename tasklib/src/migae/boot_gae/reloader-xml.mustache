@@ -1,0 +1,10 @@
+  {{#urls}}
+  <filter-mapping>
+    <url-pattern>{{url}}</url-pattern>
+    <filter-name>reloader</filter-name>
+  </filter-mapping>
+  {{/urls}}
+  <filter>
+    <filter-name>reloader</filter-name>
+    <filter-class>{{reloader-ns}}</filter-class>
+  </filter>

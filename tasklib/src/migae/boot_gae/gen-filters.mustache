@@ -1,0 +1,8 @@
+(ns {{gen-filters-ns}})
+
+{{#filters}}
+(gen-class :name {{ns}}
+           :implements [javax.servlet.Filter]
+           :impl-ns {{ns}})
+
+{{/filters}}
