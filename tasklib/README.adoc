@@ -23,8 +23,8 @@ servers.
 === toc
 
 * <<start,getting started>>
-* <<tasks>>
 * <<configuration>>
+* <<tasks>>
 * <<how,how it works>>
 * <<repl>>
 * <<config,config>>
@@ -37,7 +37,7 @@ servers.
 
 Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
 the repo.  It contains `tasklib`, the task lib itself, and
-`hello-gae`, a test/demo program that uses the tasklib.
+`greetings-gae`, a test/demo program that uses the tasklib.
 
 [source,clojure]
 .build.boot
@@ -55,21 +55,28 @@ to refer to boot-gae tasks.  For example, `gae/config` means `migae.boot-gae/con
 ====
 
 
-Then you need to define a map named `gae` to configure things; see
-<<config-map,below>> for details.
+Then you need to configure your web app.  See the sample app, `config`
+directory, for examples.  Doc to come...
 
-[source,clojure]
-.build.boot
-----
-(def gae { ... details below ...}
-----
+
+[[configuration]]
+== configuration
+
+Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
+configuration files required by the GAE servlet container are
+automatically generated from `.edn` files.
+
+The dev server will automatically reload `appengine-web.xml` if it
+changes, but unfortunately the same cannot be said for `web.xml`. If
+you change it - that is, if you change your configuration files you'll
+need to rebuild and restart the server.
+
 
 [[tasks]]
 = tasks
 
-* <<configs,configuration tasks>>
- ** `<<config-appengine>>` generate gae `appengine-web.xml` config file
- ** `<<config-webapp>>`    generate gae `web.xml` config file
+* `<<appengine>>` generate gae `appengine-web.xml` config file
+* `<<webxml>>`    generate gae `web.xml` config file
 * `<<deploy>>`             install a new version of the application onto the server
 * `<<dev>>`                build for dev (includes `reloader` task)
 * `<<filters>>`            generate a "meta-filter" file with gen-class directives and aot-compile it to generate filters
@@ -82,29 +89,6 @@ Then you need to define a map named `gae` to configure things; see
 * `<<servlets>>`	   generate a "meta-servlet" file with gen-class directives and aot-compile it to produce servlets
 * `<<watch>>`		   watch input, write to output on change
 
-[[configs]]
-=== configuration
-
-Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
-configuration files required by the GAE servlet container are
-automatically generated from your configuration map.  The dev server
-will automatically reload `appengine-web.xml` if it changes, but
-unfortunately the same cannot be said for `web.xml`. If you change it
-- that is, if you change your configuration map and re-run
-`gae/config` -- you need to restart the dev server.  For example:
-
-[source,shell]
-----
-$ boot gae/config target -C -d "build"
-$ boot gae/run
-----
-
-[NOTE]
-====
-For the moment you need to run gae/run as a separate step as shown here.  If you
-tack it on the end of the first boot command shown here, boot seems to
-launch the dev server before the gae/config task has completed.
-====
 
 ==== aot
 
@@ -299,10 +283,11 @@ Servlet implementations will look like this:
 [[watch]]
 === watch
 
-[[config-webapp]]
+[[webxml]]
 ==== webxml
 
-Generates `WEB-INF/web.xml` from `web.xml.edn`
+Generates `WEB-INF/web.xml` from `web.xml.edn`.  Run this task *after*
+you run `servlets`, `filters`, `reloader`, and `appstats`.
 
 
 [[repl]]
