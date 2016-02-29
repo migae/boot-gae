@@ -133,6 +133,25 @@ To deploy run `$ boot gae/deploy`.
 [[dev]]
 === dev
 
+The build pipeline:
+
+[source,clojure]
+----
+  (comp (install-sdk)
+        (libs)
+        (logging)
+        (clj)
+        (appstats)
+        (filters :keep keep)
+        (servlets :keep keep)
+        (reloader :keep keep)
+        (webxml)
+        (appengine)
+        ))
+----
+
+Some of the tasks can be run in any order (e.g. filters and servlets) but `webxml` must be run after `servlets`, `filters`, `appstats` and `reloader`, since it uses the `web.xml.edn` file they elaborate.  The `reloader` ``filters`, and `appstats` tasks are optional.
+
 [[filters]]
 === filters
 
@@ -149,6 +168,10 @@ Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 
 [[reloader]]
 === reloader
+
+Install a servlet filter to support reload-on-refresh in conjunction
+with the `watch` task.  For use during development, in order to get
+repl-like responsiveness.  Run `gae/reloader -k` to see the intermediate files.
 
 [[run]]
 === run
