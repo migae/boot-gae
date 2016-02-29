@@ -25,17 +25,7 @@
                    [ns-tracker/ns-tracker "0.3.0"]
                    ])
 
-;; (def gae
-;;   ;; web.xml doco: http://docs.oracle.com/cd/E13222_01/wls/docs81/webapp/web_xml.html
-;;   {;; :build-dir ; default: "build";  gradle compatibility: "build/exploded-app"
-;;    ;; :sdk-root ; default: ~/.appengine-sdk; gradle compatibility: "~/.gradle/appengine-sdk"
-;;    :list-tasks true
-;;    ;; :verbose true
-;;    :module "foo"
-;;    })
-
 (require '[migae.boot-gae :as gae]
-         ;; '[boot-miraj :as mrj]
          #_'[boot.task.built-in :as builtin])
 
 (task-options!
