@@ -1,13 +1,12 @@
 = boot-gae
 
-
 A Boot library for Google App Engine development in Clojure.
 
 [IMPORTANT]
 ====
-The documentation, like the code, is unpolished and partially
-incomplete.  In particular the reader will probably need to have some
-idea of how boot works.
+This documentation is a little bit out of date, and, like the code, is
+unpolished and partially incomplete.  In particular the reader will
+probably need to have some idea of how boot works.
 ====
 
 IMPORTANT: not yet pushed to clojars.  If you want to give it a try,

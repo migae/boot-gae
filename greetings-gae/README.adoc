@@ -1,4 +1,4 @@
-= hello-gae
+= greetings-gae
 
 A simple https://cloud.google.com/appengine/docs/java/[Google App
 Engine] webapp, written in 100% https://clojure.org/[Clojure], built
@@ -24,7 +24,7 @@ webapp up and running on GAE with a repl-like development environment.
 $ git clone https://github.com/migae/boot-gae.git
 $ cd boot-gae/tasklib
 $ boot pom jar install
-$ cd ../hello-gae
+$ cd ../greetings-gae
 $ boot gae/build
 $ boot gae/run
 ----
@@ -64,7 +64,7 @@ Clojure webapp must aot-compile a servlet; usually this is done using
 You will notice that `gen-class` is nowhere to be found the Clojure
 source code of this app.  That's because it depends on the `boot-gae`
 task library, which contains a `servlets` task that uses data in
-`build.boot` to generate the appropriate `gen-class` code and
+`.edn` config files to generate the appropriate `gen-class` code and
 aot-compiles it at build time.  You only have to do that once, unless
 you change the servlet configuration in `build.boot`.
 

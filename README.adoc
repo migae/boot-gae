@@ -4,10 +4,4 @@ A Boot library for Google App Engine development in Clojure.
 
 See tasklib link:tasklib/README.adoc[README] for info on the tasklib itself.
 
-To experiment, use link:hello-gae/README.adoc[hello-gae].
-
-[source,clojure]
-----
-
-----
-
+To experiment, see the link:greetings-gae/README.adoc[greetings-gae] subdir.
