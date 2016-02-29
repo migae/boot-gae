@@ -176,6 +176,13 @@ repl-like responsiveness.  Run `gae/reloader -k` to see the intermediate files.
 [[run]]
 === run
 
+==== security
+
+Add security-constraint stanzas to `web.xml`.  Configuration data goes in `security.edn`.
+
+WARNING: not yet implemented
+
+
 [[servlets]]
 === servlets
 
