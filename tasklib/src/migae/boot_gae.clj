@@ -19,6 +19,7 @@
 (def web-xml-edn "web.xml.edn")
 (def gae-edn "appengine.edn")
 (def appstats-edn "appstats.edn")
+(def web-inf-dir "WEB-INF")
 
 (defn expand-home [s]
   (if (or (.startsWith s "~") (.startsWith s "$HOME"))
@@ -39,11 +40,10 @@
                                                               (if (= k :sdk-root)
                                                                 (str (expand-home v) "/" sdk-string)
                                                                 v)))
-                               {} boot.user/gae)))
-                               ;; {} (:gae (boot/get-env)))))
+                               {}
+                               (:gae (boot/get-env)))))
 
 ;;(str (:build-dir config-map)
-(def web-inf-dir "WEB-INF")
 
 (def classes-dir (str web-inf-dir "/classes"))
 
@@ -208,10 +208,10 @@
 ;;     fs))
 
 (boot/deftask clj
-  "Copy source .clj files to <build-dir>/WEB-INF/classes"
+  "Assetize and mv source .clj files to <build-dir>/WEB-INF/classes"
   []
   (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
-                       :to-asset #{#"clj$"}))
+                :to-resource #{#"clj$"}))
 
 (boot/deftask aot
   "Built-in aot does not allow custom *compile-path*"
@@ -258,36 +258,10 @@
         (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
 
         (let [gae-edn-f (first gae-edn-fs)
-              gae-map (-> (boot/tmp-file gae-edn-f) slurp read-string)
-              ;; path     (boot/tmp-path gae-edn-f)
-              ;; in-file  (boot/tmp-file gae-edn-f)
-              ;; out-file (io/file tmp-dir path)
-
-              gae-map (assoc gae-map
+              gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
+              gae-map (assoc gae-forms
                              :app-id (-> (boot/get-env) :gae :app-id)
-                             :version (-> (boot/get-env) :gae :version))
-
-              ;; _ (println "GAEXML: " gae-map)
-
-              ;; (let [config-syms (if config-syms config-syms #{'appengine/config})
-              ;;       ;; _ (println "config-syms: " config-syms)
-              ;;       dir (if dir dir web-inf-dir)
-              ;;       config-map
-              ;;       (into {} (for [config-sym (seq config-syms)]
-              ;;                (let [config-ns (symbol (namespace config-sym))]
-              ;;                  ;; (println "CONFIG-NS: " config-ns)
-              ;;                  (require config-ns)
-              ;;                  ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
-              ;;                  (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
-              ;;                  (let [config-var (if-let [v (resolve config-sym)]
-              ;;                                     v (throw
-              ;;                                        (Exception.
-              ;;                                         (str "can't find config var for: " config-sym))))
-              ;;                        configs (deref config-var)]
-              ;;                    configs))))]
-              ;;   ;; (println "meta-config map :")
-              ;;   ;; (pp/pprint config-map)
-              ]
+                             :version (-> (boot/get-env) :gae :version))]
           (let [content (stencil/render-file
                          "migae/boot_gae/xml.appengine-web.mustache"
                          gae-map)]
