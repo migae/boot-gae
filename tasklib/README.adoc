@@ -301,6 +301,10 @@ Generates `WEB-INF/web.xml` from `web.xml.edn`
 [[repl]]
 = replry
 
+WARNING: This section is somewhat out of date.  Now the tasks
+`gae/watch` and `gae/reloader` together give you the technique
+described below out of the box.
+
 Then you'll need to prepare things, as described below.  Once that's
 done, you'll no doubt want to do repl-based development: change some
 source code and have the results show up immediately in the browser.
@@ -332,6 +336,9 @@ $ boot watch sift -i "html$" target -d "build" -C
 ```
 ====
 
+
+WARNING: obsolete.  you don't have to do this by hand any more, the
+`reloader` task handles it automatically.
 
 The second thing you need to do is install a filter servlet that will
 reload your Clojure files from `WEB-INF/classes`.  Here's an example:
@@ -459,47 +466,15 @@ use the `sift` task instead.  In particular the `:move` parameter to
 their paths.
 
 You could use `sift` to arrange things by hand, but as a convenience
-the `gae/assets` task encapsulates `sift`.  Generally you'll only need
-it for Clojure source files:
+the `gae/clj` task will do it for you.
 
-```
-(gae/assets :type :clj :odir "WEB-INF/classes")
-```
-
-CAVEAT: `gae/assets` probably isn't really necessary and may be removed
-====
-
-Once you've done that, just run `$ boot gae/run` and the dev server should launch.
-
-You can easily automate this by defining some tasks in your `build.boot`.  Here's an example:
-
-[source,clojure]
-.build.boot
-----
-;; assuming gae/install-sdk and gae/libs have been run, do:
-(deftask prep
-  "run all the boot-gae prep tasks"
-  []
-  (comp (gae/assets :type :clj :odir "WEB-INF/classes")
-        (gae/logging)
-        (gae/config)
-        (builtin/target :dir #{"build"} :no-clean true)
-        (gae/servlets)
-        (builtin/sift :include #{#"class$"}
-                      :move {#"(.*class$)" "WEB-INF/classes/$1"})
-        (builtin/target :dir #{"build"} :no-clean true)))
-----
-
-In short, if you have added this `prep` task definition to your
-`build.boot`, then all you have to do to get running is:
-
-1.  `$ boot gae/install-sdk`
-2.  `$ boot gae/libs`
-3.  `$ boot prep`
-4.  `$ boot gae/run`
 
 [[config-map]]
 == configuration map
+
+WARNING: Waaaay obsolete.  We now use `.edn` config files.  But the
+map structure is pretty much the same.  See the sample app
+`greetings-gae` for examples.
 
 The configuration map is used by the `gae/config` task to generate the
 `web.xml` and `appengine-web.xml` files required by GAE.
