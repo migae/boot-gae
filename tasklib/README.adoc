@@ -150,6 +150,11 @@ supports the technique described here out of the box, via the
 `build.boot`, processes a stencil template file to generate a Clojure
 source file, and then aot compiles that source file.
 
+WARNING: the following is obsolete - boot-gae now uses `.edn` files
+for configuration.  see the `greetings-gae` test app for examples.
+Try running `gae/servlets` with and without the `:keep` flag to see
+the intermediate files.
+
 Here's an example:  this configuration map:
 
 [source,clojure]
