@@ -106,12 +106,22 @@ tack it on the end of the first boot command shown here, boot seems to
 launch the dev server before the gae/config task has completed.
 ====
 
+==== aot
+
+The builtin `aot` command does not allow specification of output dir so we hacked it up
 
 [[config-appengine]]
-==== config-appengine
+==== appengine
 
-[[config-webapp]]
-==== config-webapp
+Generates `WEB-INF/appengine-web.xml` from `appengine.edn`
+
+==== appstats
+
+Enables Google's built-in Appstats service.  Configure in `appstats.edn`
+
+==== clj
+
+Move clojure source files to `WEB-INF/classes`
 
 [[deploy]]
 === deploy
@@ -131,6 +141,8 @@ To deploy run `$ boot gae/deploy`.
 
 [[libs]]
 === libs
+
+Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 
 [[logging]]
 === logging
@@ -256,6 +268,11 @@ Servlet implementations will look like this:
 
 [[watch]]
 === watch
+
+[[config-webapp]]
+==== webxml
+
+Generates `WEB-INF/web.xml` from `web.xml.edn`
 
 
 [[repl]]
