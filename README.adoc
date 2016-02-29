@@ -5,3 +5,33 @@ A Boot library for Google App Engine development in Clojure.
 See tasklib link:tasklib/README.adoc[README] for info on the tasklib itself.
 
 To experiment, see the link:greetings-gae/README.adoc[greetings-gae] subdir.
+
+
+=== todo
+
+* split servlet/filter configs into separate files, e.g. `servlets/foo.edn`
+
+* cherry-picking servlets and filters for building
+
+* a `prod` task for production builds
+
+* support for android/gradle-style build variants and flavors
+
+* multiple configs for same servlet - e.g. for experimenting with
+  various initialization parameters, etc.
+
+* change config syntax from vector of maps with :ns key to map keyed
+  by servlet namespace sym
+
+* full Clojure (e.g. ring/compojure) support for filters
+
+* support some kind of threading syntax for filter config?  currently
+  the filter chain is implicitly defined by the order in which the
+  filter specs occur.  this is in contrast with servlet configs, where
+  text order makes no difference (for most purposes?).  It would be
+  nice to make the filter chain explicity using std Clojure
+  operations, e.g. `(-> request filter-a filter-b ...)` But maybe that would
+  be overkill; vectors are already ordered.
+
+* note that servlet filters behave exactly like ring handlers (or
+  vice-versa), which is exactly like a boot pipeline.
