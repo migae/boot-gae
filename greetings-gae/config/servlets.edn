@@ -2,13 +2,13 @@
              :name "hello-servlet"
              :display {:name "Awesome Hello Servlet"}
              :desc {:text "blah blah"}
-             :url "/hello/*"
+             :urls ["/hello/*" "/foo/*"]
              :params [{:name "greeting" :val "Hello"}]
              :load-on-startup {:order 3}}
 
             {:ns greetings.goodbye
              :name "goodbye-servlet"
-             :url "/goodbye/*"
+             :urls ["/goodbye/*" "/bar/*"]
              :params [{:name "op" :val "+"}
                       {:name "arg1" :val 3}
                       {:name "arg2" :val 2}]}]}

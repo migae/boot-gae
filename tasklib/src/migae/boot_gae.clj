@@ -266,7 +266,7 @@
                          "migae/boot_gae/xml.appengine-web.mustache"
                          gae-map)]
             (if verbose (println content))
-            (util/info "Configuring appengine-web.xml")
+            (util/info "Configuring appengine-web.xml\n")
             (let [xml-out-path (str dir "/appengine-web.xml")
                   xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
                   ]
@@ -429,7 +429,6 @@
         gen-filters-tmp-dir (boot/tmp-dir!)
         gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
         gen-filters-path (str gen-filters-ns ".clj")]
-    (util/info "Configuring filters...")
     (comp
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
@@ -475,6 +474,7 @@
                                                    (io/file gen-filters-tmp-dir gen-filters-path)
                                                  io/make-parents)]
                      (spit gen-filters-out-file gen-filters-content))))))))
+       (util/info "Configuring filters...\n")
 
        ;; step 3: commit files to fileset
        (reset! prev-pre
@@ -537,7 +537,6 @@
    v verbose bool "Print trace messages."
    o odir ODIR str "output dir"]
   ;; (print-task "logging" *opts*)
-  (util/info "Configuring logging...")
   (let [content (stencil/render-file
                  (if (= log :log4j)
                    "migae/boot_gae/log4j.properties.mustache"
@@ -562,6 +561,7 @@
              ;; _ (println "odir: " odir)
              out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
          (spit out-file content)
+         (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
 (defn- add-reloader!
@@ -575,7 +575,8 @@
                            :name "reloader"
                            :display {:name "Clojure reload filter"}
                            :urls (if (empty? urls) [{:url "./*"}]
-                                     (merge (for [url urls] {:url url})))
+                                     (vec urls)
+                                     #_(merge (for [url urls] {:url url})))
                            :desc {:text "Clojure reload filter"}}))
           s (with-out-str (pp/pprint m))]
     (spit out-file s))))
@@ -607,7 +608,8 @@
            (throw (Exception. "web.xml.edn file not found")))
          (let [web-xml-edn-f (first f)
                web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
-               urls (map #(:url %) (:servlets web-xml))
+               urls (flatten (concat (map #(% :urls) (:servlets web-xml))))
+               ;; _ (println "URLS: " urls)
                path     (boot/tmp-path web-xml-edn-f)
                in-file  (boot/tmp-file web-xml-edn-f)
                out-file (io/file edn-tmp path)]
@@ -632,6 +634,7 @@
                      impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
                  (spit aot-out-file gen-reloader-content)
                  (spit impl-out-file reloader-impl-content)
+                 (util/info "Configuring reloader\n")
                  (reset! prev-pre
                          (-> fileset
                      (boot/add-source edn-tmp)
@@ -739,6 +742,14 @@
         ;; )
     ))))
 
+(defn- normalize-servlet-configs
+  [configs]
+  {:servlets
+   (into [] (for [config (:servlets configs)]
+              (let [urls (into [] (for [url (:urls config)]
+                                    {:url (str url)}))]
+                (merge config {:urls urls}))))})
+
 (boot/deftask servlets
   "generate servlets; update web.xml.edn with servlet config data"
 
@@ -751,7 +762,6 @@
    n gen-servlets-ns NS str "namespace to generate and aot; default: 'servlets"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  (util/info "Configuring servlets...")
   (let [edn-tmp-dir (boot/tmp-dir!)
         prev-pre (atom nil)
         ;; config-sym (if config-sym config-sym 'servlets/config)
@@ -787,13 +797,9 @@
 
                  (let [edn-servlets-f (first servlets-edn-files)
                        servlet-configs (-> (boot/tmp-file edn-servlets-f) slurp read-string)
+                       servlet-configs (normalize-servlet-configs servlet-configs)
                        smap (-> web-xml-edn-c (assoc-in [:servlets]
                                                         (:servlets servlet-configs)))
-                                         ;; {:ns reloader-ns
-                                         ;;  :name "reloader"
-                                         ;;  :display {:name "Clojure reload filter"}
-                                         ;;  :urls (vec urls)
-                                         ;;  :desc {:text "Clojure reload filter"}}))
                        web-xml-edn-s (with-out-str (pp/pprint smap))]
                    ;; step 1:  inject servlet config stanza to web.xml.edn
                    (let [path     (boot/tmp-path web-xml-edn-f)
@@ -811,6 +817,7 @@
                                                    (io/file gen-servlets-tmp-dir gen-servlets-path)
                                                  io/make-parents)]
                      (spit gen-servlets-out-file gen-servlets-content))))))))
+       (util/info "Configuring servlets...\n")
 
        ;; step 3: commit files to fileset
        (reset! prev-pre
@@ -853,38 +860,7 @@
               web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
               path     (boot/tmp-path web-xml-edn-f)
               in-file  (boot/tmp-file web-xml-edn-f)
-              out-file (io/file edn-tmp path)
-
-              ;; _ (println "WEBXML: " web-xml)
-
-            ;; in-file  (boot/tmp-file (first edn-f))
-            ;; edn (-> in-file slurp read-string)
-
-            ;; config-syms (:config-syms edn)
-            ;; ;; config-syms (if config-syms config-syms #{'webapp/config})
-
-            ;; _ (println "config-syms: " config-syms)
-
-              ;; config-map
-              ;; (into {} (for [config-sym (seq config-syms)]
-              ;;            (let [config-ns (symbol (namespace config-sym))]
-              ;;              ;; (println "CONFIG-NS: " config-ns)
-              ;;              (require config-ns)
-              ;;              ;; (doseq [[ivar isym] (ns-interns config-ns)] (println "interned: " ivar isym))
-              ;;              (if (not (find-ns config-ns)) (throw (Exception. (str "can't find appengine config ns"))))
-              ;;              (let [config-var (if-let [v (resolve config-sym)]
-              ;;                                 v (throw
-              ;;                                    (Exception.
-              ;;                                     (str "can't find config var for: " config-sym))))
-              ;;                    configs (deref config-var)]
-              ;;                configs))))
-
-            ;; config-map (if (:reloader edn)
-            ;;              (assoc config-map :reloader (:reloader edn))
-            ;;              config-map)]
-              ]
-          ;; (println "meta-config map :")
-          ;; (pp/pprint config-map)
+              out-file (io/file edn-tmp path)]
           (let [content (stencil/render-file
                          "migae/boot_gae/xml.web.mustache"
                          web-xml #_config-map)]
@@ -898,6 +874,7 @@
            ;; (if (.exists reloader)
            ;;   nop
            ;;   create empty reloader
+              (util/info "Configuring web.xml\n")
               (spit xml-out-file content)))))
       (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
 
@@ -911,7 +888,7 @@
 
 (boot/deftask dev
   "make a dev build - including reloader"
-  [k keep bool "keep intermediate .clj files"]
+  [k keep bool "keep intermediate .clj and .edn files"]
   (comp (install-sdk)
         (libs)
         (logging)
@@ -924,12 +901,18 @@
         (appengine)
         ))
 
-(boot/deftask webapp-test
-  ""
-  [k keep bool "keep intermediate files"]
-  (comp (filters :keep keep)
+(boot/deftask bldtest
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"]
+  (comp (install-sdk)
+        (libs)
+        (logging)
+        (clj)
+        (appstats)
+        (filters :keep keep)
         (servlets :keep keep)
         (reloader :keep keep)
         ;; (webxml)
-        (appengine)
+        ;;(appengine)
         ))
+

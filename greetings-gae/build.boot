@@ -36,6 +36,6 @@
 
 (deftask dev
   "dev build and save"
-  []
-  (comp (gae/dev)
+  [k keep bool "keep"]
+  (comp (gae/dev :keep)
         (target)))

@@ -14,6 +14,11 @@
                       (str (.getRequestURL (:servlet-request rqst))))
              (-> (rsp/response (str "Hello there, " name))
                  (rsp/content-type "text/html"))))
+    (GET "/foo/:name" [name :as rqst]
+         (do (println "handler:  greetings.hello on " (:request-method rqst)
+                      (str (.getRequestURL (:servlet-request rqst))))
+             (-> (rsp/response (str name "?  I pity the foo!"))
+                 (rsp/content-type "text/html"))))
     (route/not-found "<h1>Hello route not found</h1>"))
 
 (ring/defservice
