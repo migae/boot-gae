@@ -305,19 +305,32 @@
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                     boot/input-files
-                    (boot/by-name [web-xml-edn]))]
-         (if (> (count web-xml-edn-fs) 1)
-           (throw (Exception. "only one web.xml.edn file allowed")))
-         (if (= (count web-xml-edn-fs) 0)
-           (throw (Exception. "web.xml.edn file not found")))
-         (let [web-xml-edn-f (first web-xml-edn-fs)
-               web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
-               path     (boot/tmp-path web-xml-edn-f)
-               in-file  (boot/tmp-file web-xml-edn-f)
-               out-file (io/file edn-tmp path)]
-           (if (:appstats web-xml)
+                    (boot/by-name [web-xml-edn]))
+             web-xml-edn-f (condp = (count web-xml-edn-files)
+                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
+                                   nil)
+                             1 (first web-xml-edn-files)
+                             (throw (Exception. "only one web.xml.edn file allowed")))
+             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
+         ;; (println "web-xml-edn-c: " web-xml-edn-c)
+
+
+       ;; (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+       ;;              boot/input-files
+       ;;              (boot/by-name [web-xml-edn]))]
+       ;;   (if (> (count web-xml-edn-fs) 1)
+       ;;     (throw (Exception. "only one web.xml.edn file allowed")))
+       ;;   (if (= (count web-xml-edn-fs) 0)
+       ;;     (throw (Exception. "web.xml.edn file not found")))
+       ;;   (let [web-xml-edn-f (first web-xml-edn-fs)
+       ;;         web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
+       ;;         path     (boot/tmp-path web-xml-edn-f)
+       ;;         in-file  (boot/tmp-file web-xml-edn-f)
+       ;;         out-file (io/file edn-tmp path)]
+
+           (if (:appstats web-xml-edn-c)
              fileset
              (do
                ;; (add-appstats! reloader-impl-ns urls in-file out-file)
@@ -330,18 +343,13 @@
                    (throw (Exception. (str appstats-edn " file not found"))))
                  (let [appstats-edn-f (first appstats-fs)
                        appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
-                   (util/info "Adding :appstats to %s...\n" (.getName in-file))
-                   (io/make-parents out-file)
-                   (let [m (-> web-xml
+                   (util/info (str "Elaborating " web-xml-edn " with :appstats stanza"))
+                   (let [m (-> web-xml-edn-c
                                (assoc-in [:appstats] (:appstats appstats-config)))
-                                     ;; {:ns reloader-ns
-                                     ;;  :name "reloader"
-                                     ;;  :display {:name "Clojure reload filter"}
-                                     ;;  :urls (if (empty? urls) [{:url "./*"}]
-                                     ;;            (merge (for [url urls] {:url url})))
-                                     ;;  :desc {:text "Clojure reload filter"}}))
-                         s (with-out-str (pp/pprint m))]
-                     (spit out-file s))))))))
+                         web-xml-edn-s (with-out-str (pp/pprint m))
+                         web-xml-edn-out-file (io/file edn-tmp web-xml-edn)]
+                     (io/make-parents web-xml-edn-out-file)
+                     (spit web-xml-edn-out-file web-xml-edn-s)))))))
                (reset! prev-pre
                        (-> fileset
                            (boot/add-source edn-tmp)
@@ -482,10 +490,8 @@
                    (boot/add-source edn-tmp-dir)
                    (boot/add-source gen-filters-tmp-dir)
                    boot/commit!)))
-     (aot :namespace #{gen-filters-ns} :dir (str web-inf "/classes"))
-     ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
-     (if keep
-       identity
+     (aot :namespace #{gen-filters-ns}) ;; :dir (str web-inf "/classes"))
+     (if keep identity
        (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
                      :invert true))
      (if keep
@@ -525,7 +531,8 @@
       fileset)))
 
 (boot/deftask libs
-  "" []
+  ""
+  [v verbose bool "Print trace messages."]
   (comp
    (builtin/uber :as-jars true)
    (builtin/sift :include #{#"zip$"} :invert true)
@@ -564,22 +571,22 @@
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
-(defn- add-reloader!
-  [reloader-ns urls in-file out-file]
-  (let [spec (-> in-file slurp read-string)]
-    (util/info "Adding :reloader to %s...\n" (.getName in-file))
-    (io/make-parents out-file)
-    (let [m (-> spec
-                (assoc-in [:reloader]
-                          {:ns reloader-ns
-                           :name "reloader"
-                           :display {:name "Clojure reload filter"}
-                           :urls (if (empty? urls) [{:url "./*"}]
-                                     (vec urls)
-                                     #_(merge (for [url urls] {:url url})))
-                           :desc {:text "Clojure reload filter"}}))
-          s (with-out-str (pp/pprint m))]
-    (spit out-file s))))
+;; (defn- add-reloader!
+;;   [reloader-ns urls in-file out-file]
+;;   (let [spec (-> in-file slurp read-string)]
+;;     (util/info "Adding :reloader to %s...\n" (.getName in-file))
+;;     (io/make-parents out-file)
+;;     (let [m (-> spec
+;;                 (assoc-in [:reloader]
+;;                           {:ns reloader-ns
+;;                            :name "reloader"
+;;                            :display {:name "Clojure reload filter"}
+;;                            :urls (if (empty? urls) [{:url "./*"}]
+;;                                      (vec urls)
+;;                                      #_(merge (for [url urls] {:url url})))
+;;                            :desc {:text "Clojure reload filter"}}))
+;;           s (with-out-str (pp/pprint m))]
+;;     (spit out-file s))))
 
 (boot/deftask reloader
   "generate reloader servlet filter"
@@ -595,28 +602,39 @@
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
         reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) (gensym "reloader"))
-        reloader-impl-path (str web-inf "/classes/" reloader-impl-ns ".clj")
+        reloader-impl-path (str reloader-impl-ns ".clj")
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [f (->> (boot/fileset-diff @prev-pre fileset)
+       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                     boot/input-files
-                    (boot/by-name [web-xml-edn]))]
-         (if (> (count f) 1)
-           (throw (Exception. "only one web.xml.edn file allowed")))
-         (if (= (count f) 0)
-           (throw (Exception. "web.xml.edn file not found")))
-         (let [web-xml-edn-f (first f)
-               web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
-               urls (flatten (concat (map #(% :urls) (:servlets web-xml))))
-               ;; _ (println "URLS: " urls)
-               path     (boot/tmp-path web-xml-edn-f)
-               in-file  (boot/tmp-file web-xml-edn-f)
-               out-file (io/file edn-tmp path)]
-           (if (:reloader web-xml)
+                    (boot/by-name [web-xml-edn]))
+             web-xml-edn-f (condp = (count web-xml-edn-files)
+                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
+                                   nil)
+                             1 (first web-xml-edn-files)
+                             (throw (Exception. "only one web.xml.edn file allowed")))
+             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
+         ;; (println "web-xml-edn-c: " web-xml-edn-c)
+
+           (if (:reloader web-xml-edn-c)
              fileset
              (do
-               (add-reloader! reloader-impl-ns urls in-file out-file)
+               ;; step 1: inject :reloader stanza into web.xml.edn
+               ;; (add-reloader! reloader-impl-ns urls in-file out-file)
+               (let [urls (flatten (concat (map #(% :urls) (:servlets web-xml-edn-c))))
+                     m (-> web-xml-edn-c (assoc-in [:reloader]
+                                                   {:ns reloader-impl-ns
+                                                    :name "reloader"
+                                                    :display {:name "Clojure reload filter"}
+                                                    :urls (if (empty? urls) [{:url "/*"}]
+                                                              (vec urls))
+                                                    :desc {:text "Clojure reload filter"}}))
+                     web-xml-edn-s (with-out-str (pp/pprint m))
+                     web-xml-edn-out-file (io/file edn-tmp web-xml-edn)]
+                 (io/make-parents web-xml-edn-out-file)
+                 (spit web-xml-edn-out-file web-xml-edn-s))
+
                (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
                                                                 {:reloader-ns reloader-impl-ns})
 
@@ -640,9 +658,9 @@
                      (boot/add-source edn-tmp)
                      (boot/add-source aot-tmp-dir)
                      (boot/add-asset impl-tmp-dir)
-                     boot/commit!))))))))
-     (aot :namespace #{gen-reloader-ns} :dir (str web-inf "/classes"))
-;;     (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
+                     boot/commit!)))))))
+     (aot :namespace #{gen-reloader-ns}) ;; :dir (str web-inf "/classes"))
+     ;; keep gen reloader?
      (if keep identity
          (builtin/sift :include #{(re-pattern (str gen-reloader-ns ".*.class$"))}
                        :invert true))
@@ -745,10 +763,12 @@
 (defn- normalize-servlet-configs
   [configs]
   {:servlets
-   (into [] (for [config (:servlets configs)]
-              (let [urls (into [] (for [url (:urls config)]
-                                    {:url (str url)}))]
-                (merge config {:urls urls}))))})
+   (vec (flatten (for [config (:servlets configs)]
+          (let [urls (into [] (for [url (:urls config)]
+                                {:url (str url)}))
+                ns (if (:ns config) (:ns config) (:class config)) ]
+            (merge config {:urls urls
+                           :ns ns})))))})
 
 (boot/deftask servlets
   "generate servlets; update web.xml.edn with servlet config data"
@@ -775,15 +795,15 @@
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                     boot/input-files
-                    (boot/by-name [web-xml-edn]))]
-         (if (> (count web-xml-edn-files) 1)
-           (throw (Exception. "only one web.xml.edn file allowed")))
-         (if (= (count web-xml-edn-files) 0)
-           (throw (Exception. "cannot find web.xml.edn")))
-
-         (let [web-xml-edn-f (first web-xml-edn-files)
-               web-xml-edn-c (-> (boot/tmp-file web-xml-edn-f) slurp read-string)]
-           (if (:servlets web-xml-edn-c)
+                    (boot/by-name [web-xml-edn]))
+             web-xml-edn-f (condp = (count web-xml-edn-files)
+                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
+                                   nil)
+                             1 (first web-xml-edn-files)
+                             (throw (Exception. "only one web.xml.edn file allowed")))
+             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
+         ;; (println "web-xml-edn-c: " web-xml-edn-c)
+         (if (:servlets web-xml-edn-c)
              fileset
              (do
                ;; step 0: read the edn files
@@ -798,25 +818,26 @@
                  (let [edn-servlets-f (first servlets-edn-files)
                        servlet-configs (-> (boot/tmp-file edn-servlets-f) slurp read-string)
                        servlet-configs (normalize-servlet-configs servlet-configs)
+                       clj-servlets {:servlets (filter #(nil? (:class %)) (:servlets servlet-configs))}
                        smap (-> web-xml-edn-c (assoc-in [:servlets]
                                                         (:servlets servlet-configs)))
                        web-xml-edn-s (with-out-str (pp/pprint smap))]
+                   ;; (println "new web-xml-edn: " web-xml-edn-s)
                    ;; step 1:  inject servlet config stanza to web.xml.edn
-                   (let [path     (boot/tmp-path web-xml-edn-f)
-                         web-xml-edn-in-file  (boot/tmp-file web-xml-edn-f)
-                         web-xml-edn-out-file (io/file edn-tmp-dir path)]
+                   (let [web-xml-edn-out-file (io/file edn-tmp-dir web-xml-edn)]
+                     ;; (println "edn out: " web-xml-edn-out-file)
                      (io/make-parents web-xml-edn-out-file)
                      (spit web-xml-edn-out-file web-xml-edn-s))
 
                    ;; step 2: gen servlets
                    (let [gen-servlets-content (stencil/render-file "migae/boot_gae/gen-servlets.mustache"
-                                                                   (assoc servlet-configs
+                                                                   (assoc clj-servlets
                                                                           :gen-servlets-ns
                                                                           gen-servlets-ns))
                          gen-servlets-out-file (doto
                                                    (io/file gen-servlets-tmp-dir gen-servlets-path)
                                                  io/make-parents)]
-                     (spit gen-servlets-out-file gen-servlets-content))))))))
+                     (spit gen-servlets-out-file gen-servlets-content)))))))
        (util/info "Configuring servlets...\n")
 
        ;; step 3: commit files to fileset
@@ -825,7 +846,7 @@
                    (boot/add-source edn-tmp-dir)
                    (boot/add-source gen-servlets-tmp-dir)
                    boot/commit!)))
-     (aot :namespace #{gen-servlets-ns} :dir (str web-inf "/classes"))
+     (aot :namespace #{gen-servlets-ns}) ;; :dir (str web-inf "/classes"))
      ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
      (if keep
        identity
@@ -863,7 +884,7 @@
               out-file (io/file edn-tmp path)]
           (let [content (stencil/render-file
                          "migae/boot_gae/xml.web.mustache"
-                         web-xml #_config-map)]
+                         web-xml)]
             (if verbose (println content))
             (let [;;tmp-dir (boot/tmp-dir!)
                   xml-out-path (str odir "/web.xml")
@@ -888,31 +909,24 @@
 
 (boot/deftask dev
   "make a dev build - including reloader"
-  [k keep bool "keep intermediate .clj and .edn files"]
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)]
   (comp (install-sdk)
-        (libs)
-        (logging)
-        (clj)
-        (appstats)
-        (filters :keep keep)
-        (servlets :keep keep)
-        (reloader :keep keep)
-        (webxml)
-        (appengine)
-        ))
-
-(boot/deftask bldtest
-  "make a dev build - including reloader"
-  [k keep bool "keep intermediate .clj and .edn files"]
-  (comp (install-sdk)
-        (libs)
-        (logging)
-        (clj)
-        (appstats)
-        (filters :keep keep)
-        (servlets :keep keep)
-        (reloader :keep keep)
-        ;; (webxml)
-        ;;(appengine)
-        ))
-
+        (libs :verbose verbose)
+        (logging :verbose verbose)
+        (appstats :verbose verbose)
+        (builtin/javac)
+        (builtin/sift :to-asset #{#"(.*\.clj$)"}
+                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (reloader :keep keep :verbose verbose)
+        ;; deal with reloader impl source:
+        (builtin/sift :move {#"(^[^/]*\.clj$)" "WEB-INF/classes/$1"})
+        (filters :keep keep :verbose verbose)
+        (servlets :keep keep :verbose verbose)
+        (webxml :verbose verbose)
+        (appengine :verbose verbose)
+        (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
+        (builtin/target)
+        )))
