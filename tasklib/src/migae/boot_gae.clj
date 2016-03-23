@@ -27,11 +27,11 @@
     s))
 
 (def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
-                   zip (filter #(str/starts-with? (.getName %) "appengine-java-sdk") jars)
-                   fname (first (for [f zip] (.getName f)))
-                    sdk-string (subs fname 0 (str/last-index-of fname "."))]
-               ;; (println "sdk-string: " sdk-string)
-               sdk-string))
+                      zip (filter #(.startsWith (.getName %) "appengine-java-sdk") jars)
+                      fname (first (for [f zip] (.getName f)))
+                      sdk-string (subs fname 0 (.lastIndexOf fname "."))]
+                  ;; (println "sdk-string: " sdk-string)
+                  sdk-string))
 
 (def config-map (merge {:build-dir "target"
                         :sdk-root (let [dir (str (System/getenv "HOME") "/.appengine-sdk")]
@@ -389,14 +389,14 @@
    D auto-update-dispatch bool "Include dispatch.yaml in updates"
    _ sdk-help bool "Display SDK help screen"
    v verbose bool          "Print invocation args"]
-  (if (or (:list-tasks config-map) (:verbose config-map))
-    (println "TASK: boot-gae/deploy"))
+  (if verbose (println "TASK: boot-gae/deploy"))
   (validate-tools-api-jar)
   ;; (println "PARAMS: " *opts*)
   (let [opts (merge {:sdk-root (:sdk-root config-map)
                      :use-java7 true
                      :build-dir (:build-dir config-map)}
                     *opts*)
+        _ (println "OPTS: " opts)
         params (into [] (for [[k v] (remove (comp nil? second)
                                             (dissoc opts :build-dir :verbose :sdk-help))]
                           (str "--" (str/replace (name k) #"-" "_")
@@ -414,12 +414,11 @@
   ;; appCfg.main(params as String[])
     (def method (first (filter #(= (. % getName) "main") (. app-cfg getMethods))))
     (def invoke-args (into-array Object [params]))
-    (if (or (:verbose *opts*) (:verbose config-map))
+    (if verbose ;; (or (:verbose *opts*) (:verbose config-map))
       (do (println "CMD: AppCfg")
           (doseq [arg params]
             (println "\t" arg))))
-    #_(. method invoke nil invoke-args))
-    )
+    (. method invoke nil invoke-args)))
 
 (boot/deftask filters
   "generate filters; update web.xml.edn with filter config data"
@@ -503,12 +502,15 @@
 
 (boot/deftask install-sdk
   "Unpack and install the SDK zipfile"
-  [v verbose bool "Print trace messages"]
+  [r release SDKREL str "SDK verion"
+   v verbose bool "Print trace messages"]
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
   ;; (print-task "install-sdk" *opts*)
-  (let [jar-path (pod/resolve-dependency-jar (boot/get-env)
-                                             '[com.google.appengine/appengine-java-sdk "1.9.32"
-                                               :extension "zip"])
+  (let [release (or release "LATEST")
+        coords (vector 'com.google.appengine/appengine-java-sdk
+                       "LATEST"
+                       :extension "zip")
+        jar-path (pod/resolve-dependency-jar (boot/get-env) coords)
         sdk-dir (io/as-file (:sdk-root config-map))
         prev        (atom nil)]
     (boot/with-pre-wrap fileset
@@ -925,6 +927,27 @@
         (builtin/sift :move {#"(^[^/]*\.clj$)" "WEB-INF/classes/$1"})
         (filters :keep keep :verbose verbose)
         (servlets :keep keep :verbose verbose)
+        (webxml :verbose verbose)
+        (appengine :verbose verbose)
+        (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
+        (builtin/target)
+        )))
+
+(boot/deftask prod
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)]
+  (comp (install-sdk)
+        (libs :verbose verbose)
+        (logging :verbose verbose)
+        (appstats :verbose verbose)
+        (builtin/javac)
+        (builtin/sift :to-asset #{#"(.*\.clj$)"}
+                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (filters :keep false :verbose verbose)
+        (servlets :keep false :verbose verbose)
         (webxml :verbose verbose)
         (appengine :verbose verbose)
         (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})

@@ -59,22 +59,17 @@
     <property name="{{name}}"
 	      value="{{value}}" />
     {{/props}}
+    {{#logging.jul}}
+    <property name="{{name}}"
+	      value="{{value}}" />
+    {{/logging.jul}}
+
+    {{#logging.log4j}}
+    <property name="{{name}}"
+	      value="{{value}}" />
+    {{/logging.log4j}}
   </system-properties>
   {{/system-properties}}
-
-  {{#logging.jul}}
-  <system-properties>
-    <property name="{{name}}"
-	      value="{{value}}" />
-  </system-properties>
-  {{/logging.jul}}
-
-  {{#logging.log4j}}
-  <system-properties>
-    <property name="{{name}}"
-	      value="{{value}}" />
-  </system-properties>
-  {{/logging.log4j}}
 
   <env-variables>
     {{#env-vars}}
