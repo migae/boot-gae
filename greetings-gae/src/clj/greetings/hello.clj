@@ -6,8 +6,6 @@
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.defaults :refer :all]))
 
-(println "ring reloading hello")
-
 (defroutes hello-routes
     (GET "/hello/:name" [name :as rqst]
          (do (println "handler:  greetings.hello on " (:request-method rqst)

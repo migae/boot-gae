@@ -6,5 +6,5 @@
            {:ns goodbye-filter
             :name "goodbye filter"
             :display {:name "goodbye filter"}
-            :urls [{:url "/hello/*"}]
+            :urls [{:url "/goodbye/*"}]
             :desc {:text "goodbye filter"}}]})

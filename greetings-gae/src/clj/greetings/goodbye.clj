@@ -6,11 +6,9 @@
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.defaults :refer :all]))
 
-(println "ring reloading goodbye")
-
 (defroutes goodbye-routes
     (GET "/goodbye/:name" [name]
-         (-> (rsp/response (str "Hasta la vista, baby! " name))
+         (-> (rsp/response (str "Alas, " name "! Hasta la vista, baby!"))
              (rsp/content-type "text/html")))
     (route/not-found "<h1>Goodbye route not found</h1>"))
 

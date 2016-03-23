@@ -5,18 +5,17 @@
  :gae {:app-id "hello-gae-id"
        :version "0-1-0-SNAPSHOT"}
  :asset-paths #{"resources/public"}
- :source-paths #{"config" "src/clj" "filters"}
+ :source-paths #{"config" "src/clj" "filters" "src/java"}
  :repositories {"clojars" "https://clojars.org/repo"
                 "maven-central" "http://mvnrepository.com"
                 "central" "http://repo1.maven.org/maven2/"}
  :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
                    [boot/core "2.5.2" :scope "provided"]
                    [migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"]
-                   [com.google.appengine/appengine-java-sdk "1.9.32" :scope "test" :extension "zip"]
+                   [com.google.appengine/appengine-java-sdk "1.9.32" :scope "provided" :extension "zip"]
                    ;; we need this so we can import KickStart:
                    [com.google.appengine/appengine-tools-sdk "1.9.32" :scope "test"]
                    [javax.servlet/servlet-api "2.5"]
-                   [org.clojure/clojure "1.7.0"]
                    [compojure/compojure "1.4.0"]
                    [ring/ring-core "1.4.0"]
                    [ring/ring-devel "1.4.0"]
@@ -26,7 +25,7 @@
                    ])
 
 (require '[migae.boot-gae :as gae]
-         #_'[boot.task.built-in :as builtin])
+         '[boot.task.built-in :as builtin])
 
 (task-options!
  pom  {:project     +project+
@@ -37,5 +36,24 @@
 (deftask dev
   "dev build and save"
   [k keep bool "keep"]
-  (comp (gae/dev :keep)
-        (target)))
+  (comp (javac)
+        (gae/dev)))
+
+(deftask bldtest
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (comp (gae/install-sdk :verbose verbose)
+        (gae/libs :verbose verbose)
+        (gae/logging :verbose verbose)
+        (builtin/show :fileset true)
+        (builtin/sift :to-asset #{#"(.*\.clj$)"}
+                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        ;; (clj)
+        ;; (appstats)
+        ;; (filters :keep keep)
+        ;; (servlets :keep keep)
+        ;; (reloader :keep keep)
+        ;; (webxml)
+        ;;(appengine)
+        ))

@@ -9,8 +9,6 @@
 (defn -destroy [^Filter this]
   (println "goodbye-filter destroy invoked"))
 
-(def modified-namespaces (ns-tracker ["./"]))
-
 (defn -doFilter
   [^Filter this
    ^ServletRequest rqst

@@ -9,8 +9,6 @@
 (defn -destroy [^Filter this]
   (println "hello-filter destroy invoked"))
 
-(def modified-namespaces (ns-tracker ["./"]))
-
 #_(defn make-dofilter-method
   "Turns a handler into a function that takes the same arguments and has the
   same return value as the doFilter method in the servlet.Filter class."
