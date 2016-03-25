@@ -25,9 +25,13 @@ $ git clone https://github.com/migae/boot-gae.git
 $ cd boot-gae/tasklib
 $ boot pom jar install
 $ cd ../greetings-gae
-$ boot gae/build
-$ boot gae/run
+$ ./boot.sh gae/build
+$ ./boot.sh gae/run
 ----
+
+NOTE: Use of `boot.sh` is optional; it uses the JVM options in
+`./.boot-jvm-options`.  See
+https://github.com/boot-clj/boot/wiki/JVM-Options[JVM Options].
 
 WARNING: The GAE java sdk is quite large, so don't be alarmed if
 `gae/build` takes a while to run the first time.
