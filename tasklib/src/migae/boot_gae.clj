@@ -213,39 +213,40 @@
   (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
                 :to-resource #{#"clj$"}))
 
-(boot/deftask aot
-  "Built-in aot does not allow custom *compile-path*"
+;; (boot/deftask aot
+;;   "Built-in aot does not allow custom *compile-path*"
 
-  [a all          bool   "Compile all namespaces."
-   d dir PATH str "where to place generated class files"
-   n namespace NS #{sym} "The set of namespaces to compile."]
+;;   [a all          bool   "Compile all namespaces."
+;;    d dir PATH str "where to place generated class files"
+;;    n namespace NS #{sym} "The set of namespaces to compile."]
 
-  (let [tgt         (boot/tmp-dir!)
-        dir         (if dir dir "")
-        out-dir     (io/file tgt dir)
-        foo         (doto (io/file out-dir "foo") io/make-parents)
-        pod-env     (update-in (boot/get-env) [:directories] conj (.getPath out-dir))
-        compile-pod (future (pod/make-pod pod-env))]
-    (boot/with-pre-wrap [fs]
-      (boot/empty-dir! tgt)
-      (let [all-nses (->> fs boot/fileset-namespaces)
-            nses     (->> all-nses (set/intersection (if all all-nses namespace)) sort)]
-        (pod/with-eval-in @compile-pod
-          (require '[clojure.java.io :as io])
-          (let [foo ~(.getPath foo)]
-            (io/make-parents (io/as-file foo))
-            ;;(pod/add-classpath (io/as-file outdir))
-            (binding [*compile-path* ~(.getPath out-dir)]
-              (doseq [[idx ns] (map-indexed vector '~nses)]
-                (boot.util/info "Compiling %s/%s %s...\n" (inc idx) (count '~nses) ns)
-                (compile ns)))))
-        (-> fs (boot/add-resource tgt) boot/commit!)))))
+;;   (let [tgt         (boot/tmp-dir!)
+;;         dir         (if dir dir "")
+;;         out-dir     (io/file tgt dir)
+;;         foo         (doto (io/file out-dir "foo") io/make-parents)
+;;         pod-env     (update-in (boot/get-env) [:directories] conj (.getPath out-dir))
+;;         compile-pod (future (pod/make-pod pod-env))]
+;;     (boot/with-pre-wrap [fs]
+;;       (boot/empty-dir! tgt)
+;;       (let [all-nses (->> fs boot/fileset-namespaces)
+;;             nses     (->> all-nses (set/intersection (if all all-nses namespace)) sort)]
+;;         (pod/with-eval-in @compile-pod
+;;           (require '[clojure.java.io :as io])
+;;           (let [foo ~(.getPath foo)]
+;;             (io/make-parents (io/as-file foo))
+;;             ;;(pod/add-classpath (io/as-file outdir))
+;;             (binding [*compile-path* ~(.getPath out-dir)]
+;;               (doseq [[idx ns] (map-indexed vector '~nses)]
+;;                 (boot.util/info "Compiling %s/%s %s...\n" (inc idx) (count '~nses) ns)
+;;                 (compile ns)))))
+;;         (-> fs (boot/add-resource tgt) boot/commit!)))))
 
 (boot/deftask appengine
   "generate gae appengine-web.xml"
   [c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
    d dir DIR str "output dir"
    k keep bool str "keep intermediate .clj files"
+   m module MODULE str "module dirpath"
    v verbose bool "Print trace messages."]
   (let [tmp-dir (boot/tmp-dir!)
         prev-pre (atom nil)
@@ -259,9 +260,17 @@
 
         (let [gae-edn-f (first gae-edn-fs)
               gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
+              app-id (name (-> (boot/get-env) :gae :app-id))
+              version (-> (boot/get-env) :gae :version)
+              version (str "rev-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
+              module (:module gae-forms)
+              ;; module (if (:module gae-forms)
+              ;;          (str (:module gae-forms) "-" version)
+              ;;          nil)
               gae-map (assoc gae-forms
-                             :app-id (-> (boot/get-env) :gae :app-id)
-                             :version (-> (boot/get-env) :gae :version))]
+                             :app-id app-id
+                             :version version
+                             :module module)]
           (let [content (stencil/render-file
                          "migae/boot_gae/xml.appengine-web.mustache"
                          gae-map)]
@@ -343,7 +352,7 @@
                    (throw (Exception. (str appstats-edn " file not found"))))
                  (let [appstats-edn-f (first appstats-fs)
                        appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
-                   (util/info (str "Elaborating " web-xml-edn " with :appstats stanza"))
+                   (util/info (str "Elaborating " web-xml-edn " with :appstats stanza\n"))
                    (let [m (-> web-xml-edn-c
                                (assoc-in [:appstats] (:appstats appstats-config)))
                          web-xml-edn-s (with-out-str (pp/pprint m))
@@ -489,7 +498,7 @@
                    (boot/add-source edn-tmp-dir)
                    (boot/add-source gen-filters-tmp-dir)
                    boot/commit!)))
-     (aot :namespace #{gen-filters-ns}) ;; :dir (str web-inf "/classes"))
+     (builtin/aot :namespace #{gen-filters-ns}) ;; :dir (str web-inf "/classes"))
      (if keep identity
        (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
                      :invert true))
@@ -661,7 +670,7 @@
                      (boot/add-source aot-tmp-dir)
                      (boot/add-asset impl-tmp-dir)
                      boot/commit!)))))))
-     (aot :namespace #{gen-reloader-ns}) ;; :dir (str web-inf "/classes"))
+     (builtin/aot :namespace #{gen-reloader-ns}) ;; :dir (str web-inf "/classes"))
      ;; keep gen reloader?
      (if keep identity
          (builtin/sift :include #{(re-pattern (str gen-reloader-ns ".*.class$"))}
@@ -701,10 +710,13 @@
    _ enable-jacoco bool "--enable_jacoco"
    _ jacoco-agent-jar VAL str"--jacoco_agent_jar"
    _ jacoco-agent-args VAL str"--jacoco_agent_args"
-   _ jacoco-exec VAL str "--jacoco_exec"]
+   _ jacoco-exec VAL str "--jacoco_exec"
+
+   _ mod-ports PAIRS edn "{mod1 port1 mod2 port2 ...}"
+
+   v verbose bool "verbose"]
 
    ;; _ exploded-war-directory VAL str "--exploded_war_directory"
-
   (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)]
     ;; (println "*OPTS*: " *opts*)
     ;; (println "KS-PARAMS: " ks-params)
@@ -718,13 +730,26 @@
           ;; jargs (list* main-class args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          jargs ["com.google.appengine.tools.development.DevAppServerMain"
-                 (str "--sdk_root=" (:sdk-root config-map))
-                 (gae-app-dir)]
+          mod-ports (into [] (for [[mod port] mod-ports]
+                               (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
+                                    (str mod) ".port=" (str port))))
+          ;; _ (println "MOD PORTS: " mod-ports)
+
+          jvm-flags (for [flag jvm-flags] (str "--jvm_flag=" flag))
+          ;; _ (println "JVM-FLAGS:")
+          ;; _ (doseq [f jvm-flags] (println (str f)))
+          jargs (concat ["com.google.appengine.tools.development.DevAppServerMain"
+                         (str "--sdk_root=" (:sdk-root config-map))]
+                        mod-ports
+                        jvm-flags
+                        (if http-port [(str "--port=" http-port)])
+                        (if http-address [(str "--address=" http-address)])
+                        [(gae-app-dir)])
           jargs (into-array String jargs)]
 
-      ;; (println "jargs: " jargs (type jargs))
-      ;; (doseq [a jargs] (println "JARG: " a))
+      (if verbose
+        (do (println "jargs:")
+            (doseq [a jargs] (println "\t" a))))
       ;; implicit (System) params: java.class.path
       ;; (System/setProperty sdk-root-property sdk-root)
       ;; DEFAULT_SERVER = "appengine.google.com";
@@ -848,7 +873,7 @@
                    (boot/add-source edn-tmp-dir)
                    (boot/add-source gen-servlets-tmp-dir)
                    boot/commit!)))
-     (aot :namespace #{gen-servlets-ns}) ;; :dir (str web-inf "/classes"))
+     (builtin/aot :namespace #{gen-servlets-ns}) ;; :dir (str web-inf "/classes"))
      ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
      (if keep
        identity
@@ -905,9 +930,10 @@
   "watch for gae project"
   []
   (comp (builtin/watch)
+        (builtin/speak)
         (builtin/sift :to-resource #{#".*\.clj$"})
         (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (builtin/target :no-clean)))
+        (builtin/target :no-clean true)))
 
 (boot/deftask dev
   "make a dev build - including reloader"
@@ -930,6 +956,8 @@
         (webxml :verbose verbose)
         (appengine :verbose verbose)
         (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
+        ;; filter out backups
+        (builtin/sift :include #{(re-pattern ".*~$")} :invert true)
         (builtin/target)
         )))
 
@@ -953,3 +981,97 @@
         (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
         (builtin/target)
         )))
+
+;; (boot/deftask mods
+;;   "modules"
+;;   [k keep bool "keep intermediate .clj and .edn files"
+;;    m module MODULE str "module dir"
+;;    v verbose bool "verbose"]
+;;   (println "*opts* " *opts*)
+;;   (let [env (boot/get-env)
+;;         assets (:asset-paths env)
+;;         new-asset-paths (set (for [p assets] (str module "/" p)))
+;;         resources (:resource-paths env)
+;;         new-resource-paths (set (for [p resources] (str module "/" p)))
+;;         sources (:source-paths env)
+;;         new-source-paths (set (for [p sources] (str module "/" p)))
+;;         tgt (:target-path env)
+;;         new-target-path (str module "/" tgt)
+;;         ]
+;;     (println "env: ")
+;;     (pp/pprint env)
+;;     (println "new :asset-paths " new-asset-paths)
+;;     (println "new :resource-paths " new-resource-paths)
+;;     (println "new :source-paths " new-source-paths)
+;;     (println "new :target-path " new-target-path)
+;;     (let [mod-env (update-in (boot/get-env) [:asset-paths] (fn [old new] new) new-asset-paths)
+;;           mod-env (update-in mod-env [:resource-paths] (fn [old new] new) new-resource-paths)
+;;           mod-env (update-in mod-env [:source-paths] (fn [old new] new) new-source-paths)
+;;           mod-env (update-in mod-env [:target-path] (fn [old new] new) new-target-path)
+;;           mod-env (update-in mod-env [:dependencies] conj '[migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"])
+;;           mod-pod (future (pod/make-pod mod-env))]
+;;       (pod/with-eval-in @mod-pod
+;;         (require '[boot.core :as boot]
+;;                  '[boot.pod :as pod]
+;;                  '[migae.boot-gae :as gae])
+;;         (println "pod :asset-paths " (:asset-paths pod/env))
+;;         (println "pod :resource-paths " (:resource-paths pod/env))
+;;         (println "pod :source-paths " (:source-paths pod/env))
+;;         (println "pod :target-path " (:target-path pod/env))
+;;         (let [tmp-dir (boot/tmp-dir!)
+;;         prev-pre (atom nil)
+;;         dir (if dir dir web-inf-dir)]
+
+    ;; (boot/with-pre-wrap fileset
+    ;;   (let [gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+    ;;                    boot/input-files
+    ;;                    (boot/by-name [gae-edn]))]
+    ;;     (if (> (count gae-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
+    ;;     (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
+
+    ;;     (let [gae-edn-f (first gae-edn-fs)
+    ;;           gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
+    ;;           version (-> (boot/get-env) :gae :version)
+    ;;           version (str "rev-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
+    ;;           module (:module gae-forms)
+    ;;           ;; module (if (:module gae-forms)
+    ;;           ;;          (str (:module gae-forms) "-" version)
+    ;;           ;;          nil)
+    ;;           gae-map (assoc gae-forms
+    ;;                          :app-id (-> (boot/get-env) :gae :app-id)
+    ;;                          :version version
+    ;;                          :module module)]
+    ;;       (let [content (stencil/render-file
+    ;;                      "migae/boot_gae/xml.appengine-web.mustache"
+    ;;                      gae-map)]
+    ;;         (if verbose (println content))
+    ;;         (util/info "Configuring appengine-web.xml\n")
+    ;;         (let [xml-out-path (str dir "/appengine-web.xml")
+    ;;               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+    ;;               ]
+    ;;           (spit xml-out-file content)))))
+    ;;   (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
+    ;;   )
+
+  ;; (let [;; edn-fs (->> fileset boot/input-files (boot/by-name [edn]))]
+        ;; edn-f (boot/tmp-file (first edn-fs))
+        ;; edn-content (-> edn-f slurp read-string)
+        ;; coords (if (= pkg-mgr :webjars)
+        ;;          (->> edn-content vals (reduce merge) vals)
+        ;;          '())
+        ;; pod-env (update-in (boot/get-env) [:dependencies] conj '[cheshire "5.5.0"])
+        ;; pod-env (update-in (boot/get-env)
+        ;;                    [:source-paths] #(identity %2)
+        ;;                    (concat '[[boot/aether "2.5.5"]
+        ;;                              [boot/core "2.5.5"]
+        ;;                              [boot/pod "2.5.5"]]
+        ;;                            coords))
+        ;; pod (future (pod/make-pod pod-env))]
+    ;; (boot/with-pre-wrap [fileset]
+    ;;   (boot/empty-dir! tgt)
+      ;; (pod/with-eval-in @bower-pod
+      ;;   (require '[clojure.java.shell :refer [sh]]
+      ;;            '[clojure.java.io :as io]
+      ;;            '[clojure.string :as str]
+      ;;            '[clojure.pprint :as pp]
+      ;;            '[cheshire.core :as json])
