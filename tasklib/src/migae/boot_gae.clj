@@ -17,9 +17,13 @@
             ;; [deraen.boot-less.version :refer [+version+]]))
 
 (def web-xml-edn "web.xml.edn")
+(def webapp-edn "webapp.edn")
 (def gae-edn "appengine.edn")
 (def appstats-edn "appstats.edn")
+
 (def web-inf-dir "WEB-INF")
+  ;; (let [mod (-> (boot/get-env) :gae :module :name)]
+  ;;   (str (if mod (str mod "/")) "WEB-INF")))
 
 (defn expand-home [s]
   (if (or (.startsWith s "~") (.startsWith s "$HOME"))
@@ -27,11 +31,13 @@
     s))
 
 (def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
-                      zip (filter #(.startsWith (.getName %) "appengine-java-sdk") jars)
-                      fname (first (for [f zip] (.getName f)))
-                      sdk-string (subs fname 0 (.lastIndexOf fname "."))]
-                  ;; (println "sdk-string: " sdk-string)
-                  sdk-string))
+                      zip (filter #(.startsWith (.getName %) "appengine-java-sdk") jars)]
+                  (if (empty? zip)
+                    nil
+                    (let [fname (first (for [f zip] (.getName f)))
+                          sdk-string (subs fname 0 (.lastIndexOf fname "."))]
+                      ;; (println "sdk-string: " sdk-string)
+                     sdk-string))))
 
 (def config-map (merge {:build-dir "target"
                         :sdk-root (let [dir (str (System/getenv "HOME") "/.appengine-sdk")]
@@ -47,7 +53,7 @@
 
 (def classes-dir (str web-inf-dir "/classes"))
 
-(defn lib-dir [] "WEB-INF/lib")
+(def lib-dir (str web-inf-dir "/lib"))
 
 (def appcfg-class "com.google.appengine.tools.admin.AppCfg")
 
@@ -64,7 +70,9 @@
 (defn java-source-dir [nm] (str/join "/" [project-dir "src" nm "java"]))
 (defn input-resources-dir [nm] (str/join "/" [project-dir "src" nm "resources"]))
 
-(defn gae-app-dir [] "target")
+(defn gae-app-dir []
+  (let [mod (str (-> (boot/get-env) :gae :module))]
+    (str "target" (if mod (str "/" mod)))))
 
 (def sdk-root-property "appengine.sdk.root")
 (def java-classpath-sys-prop-key "java.class.path")
@@ -207,11 +215,11 @@
 ;;     ;;      (doseq [asset asset-files] (println "foo" asset)))
 ;;     fs))
 
-(boot/deftask clj
-  "Assetize and mv source .clj files to <build-dir>/WEB-INF/classes"
-  []
-  (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
-                :to-resource #{#"clj$"}))
+;; (boot/deftask clj
+;;   "Assetize and mv source .clj files to <build-dir>/WEB-INF/classes"
+;;   []
+;;   (builtin/sift :move {#"(.*\.clj$)" (str web-inf-dir "/classes/$1")}
+;;                 :to-resource #{#"clj$"}))
 
 ;; (boot/deftask aot
 ;;   "Built-in aot does not allow custom *compile-path*"
@@ -252,18 +260,32 @@
         prev-pre (atom nil)
         dir (if dir dir web-inf-dir)]
     (boot/with-pre-wrap fileset
-      (let [gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-                       boot/input-files
-                       (boot/by-name [gae-edn]))]
+      (let [webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                  boot/input-files
+                                  (boot/by-name [webapp-edn]))
+            webapp-edn-f (condp = (count webapp-edn-files)
+                           0 nil
+                           1 (first webapp-edn-files)
+                           (throw (Exception. "only one webapp.edn file allowed")))
+            webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+            gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+                            boot/input-files
+                            (boot/by-name [gae-edn]))]
         (if (> (count gae-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
         (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
 
         (let [gae-edn-f (first gae-edn-fs)
               gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
+              gae-forms (merge gae-forms
+                               (if (-> webapp-edn-c :module)
+                                 (if (-> webapp-edn-c :module :default)
+                                   {}
+                                   {:module (str (-> webapp-edn-c :module :name))})
+                                 {}))
               app-id (name (-> (boot/get-env) :gae :app-id))
-              version (-> (boot/get-env) :gae :version)
-              version (str "rev-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
-              module (:module gae-forms)
+              version (str/replace (-> (boot/get-env) :gae :version) "." "-")
+              version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
+              module (-> (boot/get-env) :gae :module)
               ;; module (if (:module gae-forms)
               ;;          (str (:module gae-forms) "-" version)
               ;;          nil)
@@ -315,8 +337,9 @@
     (comp
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                    boot/input-files
-                    (boot/by-name [web-xml-edn]))
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
+                    ;; (boot/by-name [web-xml-edn]))
              web-xml-edn-f (condp = (count web-xml-edn-files)
                              0 (do (util/info (str "Creating " web-xml-edn "\n"))
                                    nil)
@@ -324,21 +347,6 @@
                              (throw (Exception. "only one web.xml.edn file allowed")))
              web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
          ;; (println "web-xml-edn-c: " web-xml-edn-c)
-
-
-       ;; (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-       ;;              boot/input-files
-       ;;              (boot/by-name [web-xml-edn]))]
-       ;;   (if (> (count web-xml-edn-fs) 1)
-       ;;     (throw (Exception. "only one web.xml.edn file allowed")))
-       ;;   (if (= (count web-xml-edn-fs) 0)
-       ;;     (throw (Exception. "web.xml.edn file not found")))
-       ;;   (let [web-xml-edn-f (first web-xml-edn-fs)
-       ;;         web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
-       ;;         path     (boot/tmp-path web-xml-edn-f)
-       ;;         in-file  (boot/tmp-file web-xml-edn-f)
-       ;;         out-file (io/file edn-tmp path)]
-
            (if (:appstats web-xml-edn-c)
              fileset
              (do
@@ -356,13 +364,33 @@
                    (let [m (-> web-xml-edn-c
                                (assoc-in [:appstats] (:appstats appstats-config)))
                          web-xml-edn-s (with-out-str (pp/pprint m))
-                         web-xml-edn-out-file (io/file edn-tmp web-xml-edn)]
+                         web-xml-edn-out-file (io/file edn-tmp (boot/tmp-path web-xml-edn-f))]
                      (io/make-parents web-xml-edn-out-file)
                      (spit web-xml-edn-out-file web-xml-edn-s)))))))
                (reset! prev-pre
                        (-> fileset
                            (boot/add-source edn-tmp)
                            boot/commit!))))))
+
+
+;; FIXME: generate correct reloaders. do it by hand for now
+(boot/deftask ear
+  "construct ear dir"
+  [k keep bool "keep intermediate .clj files"
+   i meta-inf META-INF str "META-INF dir path"
+   m modules MODULES edn "modules map"
+   v verbose bool "Print trace messages."]
+  (println "EAR: " modules)
+  (let [paths (set (map #(:war %) modules))
+        m (or meta-inf "./")]
+        ;; pipeline (map #(reloader :module (:name %)) modules)]
+    (println "META-INF:" m)
+    (comp
+     (builtin/sift :add-asset #{m}
+                   :include #{#"^META-INF.*$"})
+     (builtin/sift :add-asset paths)
+     ;; (apply comp pipeline)
+     (builtin/target))))
 
 (boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -448,8 +476,9 @@
     (comp
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                    boot/input-files
-                    (boot/by-name [web-xml-edn]))]
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))]
+                    ;; (boot/by-name [web-xml-edn]))]
          (if (> (count web-xml-edn-files) 1)
            (throw (Exception. "only one web.xml.edn file allowed")))
          (if (= (count web-xml-edn-files) 0)
@@ -468,7 +497,6 @@
                    (throw (Exception. "only one filters.edn file allowed")))
                  (if (= (count filters-edn-files) 0)
                    (throw (Exception. "cannot find filters.edn")))
-
                  (let [edn-filters-f (first filters-edn-files)
                        filter-configs (-> (boot/tmp-file edn-filters-f) slurp read-string)
                        smap (-> web-xml-edn-c (assoc-in [:filters]
@@ -547,7 +575,8 @@
   (comp
    (builtin/uber :as-jars true)
    (builtin/sift :include #{#"zip$"} :invert true)
-   (builtin/sift :move {#"(.*\.jar$)" "WEB-INF/lib/$1"})))
+   ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
+   (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
 
 (boot/deftask logging
   "configure gae logging"
@@ -582,26 +611,10 @@
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
-;; (defn- add-reloader!
-;;   [reloader-ns urls in-file out-file]
-;;   (let [spec (-> in-file slurp read-string)]
-;;     (util/info "Adding :reloader to %s...\n" (.getName in-file))
-;;     (io/make-parents out-file)
-;;     (let [m (-> spec
-;;                 (assoc-in [:reloader]
-;;                           {:ns reloader-ns
-;;                            :name "reloader"
-;;                            :display {:name "Clojure reload filter"}
-;;                            :urls (if (empty? urls) [{:url "./*"}]
-;;                                      (vec urls)
-;;                                      #_(merge (for [url urls] {:url url})))
-;;                            :desc {:text "Clojure reload filter"}}))
-;;           s (with-out-str (pp/pprint m))]
-;;     (spit out-file s))))
-
 (boot/deftask reloader
   "generate reloader servlet filter"
   [k keep bool "keep intermediate .clj files"
+   m module MODULE str "module pfx"
    n gen-reloader-ns NS sym "ns for gen-reloader"
    r reloader-impl-ns NS sym "ns for reloader"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
@@ -612,65 +625,77 @@
 
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
-        reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) (gensym "reloader"))
+        reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) "reloader")
         reloader-impl-path (str reloader-impl-ns ".clj")
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                    boot/input-files
-                    (boot/by-name [web-xml-edn]))
+       (let [webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                   boot/input-files
+                                   (boot/by-name [webapp-edn]))
+             webapp-edn-f (condp = (count webapp-edn-files)
+                            0 nil
+                            1 (first webapp-edn-files)
+                            (throw (Exception. "only one webapp.edn file allowed")))
+             webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+             web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
+                                    ;; (boot/by-name [web-xml-edn]))
              web-xml-edn-f (condp = (count web-xml-edn-files)
                              0 (do (util/info (str "Creating " web-xml-edn "\n"))
                                    nil)
                              1 (first web-xml-edn-files)
-                             (throw (Exception. "only one web.xml.edn file allowed")))
-             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
+                             (throw (Exception.
+                                     (str "only one web.xml.edn file allowed, found " (count web-xml-edn-files)))))
+             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})
+             web-xml-edn-c (merge web-xml-edn-c webapp-edn-c)]
          ;; (println "web-xml-edn-c: " web-xml-edn-c)
 
-           (if (:reloader web-xml-edn-c)
-             fileset
-             (do
-               ;; step 1: inject :reloader stanza into web.xml.edn
-               ;; (add-reloader! reloader-impl-ns urls in-file out-file)
-               (let [urls (flatten (concat (map #(% :urls) (:servlets web-xml-edn-c))))
-                     m (-> web-xml-edn-c (assoc-in [:reloader]
-                                                   {:ns reloader-impl-ns
-                                                    :name "reloader"
-                                                    :display {:name "Clojure reload filter"}
-                                                    :urls (if (empty? urls) [{:url "/*"}]
-                                                              (vec urls))
-                                                    :desc {:text "Clojure reload filter"}}))
-                     web-xml-edn-s (with-out-str (pp/pprint m))
-                     web-xml-edn-out-file (io/file edn-tmp web-xml-edn)]
-                 (io/make-parents web-xml-edn-out-file)
-                 (spit web-xml-edn-out-file web-xml-edn-s))
+         (if (:reloader web-xml-edn-c)
+           fileset
+           (do
+             ;; step 1: inject :reloader stanza into web.xml.edn
+             ;; (add-reloader! reloader-impl-ns urls in-file out-file)
+             (let [urls (flatten (concat (map #(% :urls) (:servlets web-xml-edn-c))))
+                   m (-> web-xml-edn-c (assoc-in [:reloader]
+                                                 {:ns reloader-impl-ns
+                                                  :name "reloader"
+                                                  :display {:name "Clojure reload filter"}
+                                                  :urls (if (empty? urls) [{:url "/*"}]
+                                                            (vec urls))
+                                                  :desc {:text "Clojure reload filter"}}))
+                   web-xml-edn-s (with-out-str (pp/pprint m))
+                   web-xml-edn-out-file (io/file edn-tmp (boot/tmp-path web-xml-edn-f))]
+               (io/make-parents web-xml-edn-out-file)
+               (spit web-xml-edn-out-file web-xml-edn-s))
 
-               (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
-                                                                {:reloader-ns reloader-impl-ns})
+             (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
+                                                              {:reloader-ns reloader-impl-ns
+                                                               :module (or module "./")})
 
-                     gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
-                                                               {:gen-reloader-ns gen-reloader-ns
-                                                                :reloader-impl-ns reloader-impl-ns})
-                     _ (if verbose (println "impl: " reloader-impl-path))
-                     _ (if verbose (println "impl: " reloader-impl-content))
-                     _ (if verbose (println "gen: " gen-reloader-path))
-                     _ (if verbose (println "gen: " gen-reloader-content))
+                   gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
+                                                             {:gen-reloader-ns gen-reloader-ns
+                                                              :reloader-impl-ns reloader-impl-ns})
+                   _ (if verbose (println "impl: " reloader-impl-path))
+                   _ (if verbose (println "impl: " reloader-impl-content))
+                   _ (if verbose (println "gen: " gen-reloader-path))
+                   _ (if verbose (println "gen: " gen-reloader-content))
 
-                     aot-tmp-dir (boot/tmp-dir!)
-                     aot-out-file (doto (io/file aot-tmp-dir gen-reloader-path) io/make-parents)
-                     impl-tmp-dir (boot/tmp-dir!)
-                     impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
-                 (spit aot-out-file gen-reloader-content)
-                 (spit impl-out-file reloader-impl-content)
-                 (util/info "Configuring reloader\n")
-                 (reset! prev-pre
-                         (-> fileset
-                     (boot/add-source edn-tmp)
-                     (boot/add-source aot-tmp-dir)
-                     (boot/add-asset impl-tmp-dir)
-                     boot/commit!)))))))
-     (builtin/aot :namespace #{gen-reloader-ns}) ;; :dir (str web-inf "/classes"))
+                   aot-tmp-dir (boot/tmp-dir!)
+                   aot-out-file (doto (io/file aot-tmp-dir gen-reloader-path) io/make-parents)
+                   impl-tmp-dir (boot/tmp-dir!)
+                   impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
+               (spit aot-out-file gen-reloader-content)
+               (spit impl-out-file reloader-impl-content)
+               (util/info "Configuring reloader\n")
+               (reset! prev-pre
+                       (-> fileset
+                           (boot/add-source edn-tmp)
+                           (boot/add-source aot-tmp-dir)
+                           (boot/add-asset impl-tmp-dir)
+                           boot/commit!)))))))
+     (builtin/aot :namespace #{gen-reloader-ns})
      ;; keep gen reloader?
      (if keep identity
          (builtin/sift :include #{(re-pattern (str gen-reloader-ns ".*.class$"))}
@@ -693,14 +718,14 @@
    _ default-gcs-bucket VAL str  "Set the default Google Cloud Storage bucket name."
    _ instance-port bool "--instance_port"
    _ disable-filesapi-warning bool "-disable_filesapi_warning"
-   _ enable_filesapi bool "--enable_filesapi"
+   _ enable-filesapi bool "--enable_filesapi"
 
    ;; SharedMain.java
    _ sdk-root PATH str "--sdk_root"
-   _ disable_restricted_check bool "--disable_restricted_check"
+   _ disable-restricted-check bool "--disable_restricted_check"
    _ external-resource-dir VAL str "--external_resource_dir"
    _ allow-remote-shutdown bool "--allow_remote_shutdown"
-   _ no-java-agent bool "--no_java_agent"
+   a java-agent bool "use javaagaent (default: false).\n\t\tCAVEAT: setting to true may result in a dramatic increase in servlet startup time; setting false removes some security checks" ;; --no_java_agent
 
    ;; Kickstart.java
    _ generate-war bool "--generate_war"
@@ -712,36 +737,44 @@
    _ jacoco-agent-args VAL str"--jacoco_agent_args"
    _ jacoco-exec VAL str "--jacoco_exec"
 
-   _ mod-ports PAIRS edn "{mod1 port1 mod2 port2 ...}"
+   _ modules MODULES edn "modules map"
 
    v verbose bool "verbose"]
 
-   ;; _ exploded-war-directory VAL str "--exploded_war_directory"
-  (let [ks-params *opts* #_(merge runtask-params-defaults *opts*)]
-    ;; (println "*OPTS*: " *opts*)
-    ;; (println "KS-PARAMS: " ks-params)
-
-    ;;FIXME: build a java string array from ks-params
-    ;; first arg in gradle plugin: MAIN_CLASS = 'com.google.appengine.tools.development.DevAppServerMain'
-
-    (let [args (->args ks-params)
+  (boot/with-pre-wrap [fileset]
+    (let [webapp-edn-files (->> fileset
+                                boot/input-files
+                                (boot/by-name [webapp-edn]))
+          webapp-edn-f (condp = (count webapp-edn-files)
+                         0 nil
+                         1 (first webapp-edn-files)
+                         (throw (Exception. "only one webapp.edn file allowed")))
+          webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+          ;; (println "*OPTS*: " *opts*)
+          args (->args *opts*)
           ;; _ (println "ARGS: " args)
-          main-class "com.google.appengine.tools.development.DevAppServerMain"
-          ;; jargs (list* main-class args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          mod-ports (into [] (for [[mod port] mod-ports]
-                               (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
-                                    (str mod) ".port=" (str port))))
-          ;; _ (println "MOD PORTS: " mod-ports)
+          mod-ports (into [] ;; (for [[mod port] (-> (boot/get-env) :gae :modules)]
+                          (map #(str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
+                                     (:name %)
+                                    ".port="
+                                    (str (:port %)))
+                               modules))
+
+          ;; _ (println "MOD PORTS: " (filter #(:default %) modules))
+
+          http-port (or http-port
+                        (:port (first (filter #(:default %) modules)))
+                        (-> (boot/get-env) :gae :modules :default))
 
           jvm-flags (for [flag jvm-flags] (str "--jvm_flag=" flag))
-          ;; _ (println "JVM-FLAGS:")
-          ;; _ (doseq [f jvm-flags] (println (str f)))
           jargs (concat ["com.google.appengine.tools.development.DevAppServerMain"
                          (str "--sdk_root=" (:sdk-root config-map))]
                         mod-ports
                         jvm-flags
+                        (if disable-restricted-check ["--disable_restricted_check"])
+                        (if (not java-agent) ["--no_java_agent"])
                         (if http-port [(str "--port=" http-port)])
                         (if http-address [(str "--address=" http-address)])
                         [(gae-app-dir)])
@@ -750,42 +783,21 @@
       (if verbose
         (do (println "jargs:")
             (doseq [a jargs] (println "\t" a))))
-      ;; implicit (System) params: java.class.path
-      ;; (System/setProperty sdk-root-property sdk-root)
-      ;; DEFAULT_SERVER = "appengine.google.com";
-
       (validate-tools-api-jar)
-
-      ;; (pod/add-classpath "build/exploded-app/WEB-INF/classes/*")
-      ;; (pod/add-classpath "build/exploded-app/WEB-INF/lib/*")
-      ;; (doseq [j (pod/get-classpath)] (println "pod classpath: " j))
-
-      ;; (System/setProperty "java.class.path"
-      ;;                     (str/join ":" (into [] (for [j (pod/get-classpath)] (str j)))))
-
       ;; (println "system classpath: " (System/getenv "java.class.path"))
 
       (let [class-loader (-> (Thread/currentThread) (.getContextClassLoader))
             cl (.getParent class-loader)
             ;; _ (println "class-loader: " class-loader (type class-loader))
-            ;; Class kickStart = Class.forName('com.google.appengine.tools.KickStart', true, classLoader)
             kick-start (Class/forName "com.google.appengine.tools.KickStart" true class-loader)
             ]
-      ;; (println "kick-start: " kick-start (type kick-start))
-
-        ;; (doseq [j (pod/get-classpath)]
-        ;;   (let [url (java.net.URL. (str j))]
-        ;;     (println "URL: " url)
-        ;;     (-> cl (.addURL url))))
-
-      ;; (pod/with-eval-in @pod
-        ;; (def method (.getMethod kick-start "main" (class ???)))
+        ;; (println "kick-start: " kick-start (type kick-start))
         (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))
         ;;(let [parms (.getParameterTypes method)] (println "param types: " parms))
         (def invoke-args (into-array Object [jargs]))
         (. method invoke nil invoke-args)
-        ;; )
-    ))))
+        ))
+    fileset))
 
 (defn- normalize-servlet-configs
   [configs]
@@ -821,13 +833,13 @@
     (comp
      (boot/with-pre-wrap [fileset]
        (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                    boot/input-files
-                    (boot/by-name [web-xml-edn]))
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
              web-xml-edn-f (condp = (count web-xml-edn-files)
                              0 (do (util/info (str "Creating " web-xml-edn "\n"))
                                    nil)
                              1 (first web-xml-edn-files)
-                             (throw (Exception. "only one web.xml.edn file allowed")))
+                             (throw (Exception. "only one web.xml.edn file allowed; found " (count web-xml-edn-files))))
              web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
          ;; (println "web-xml-edn-c: " web-xml-edn-c)
          (if (:servlets web-xml-edn-c)
@@ -851,7 +863,7 @@
                        web-xml-edn-s (with-out-str (pp/pprint smap))]
                    ;; (println "new web-xml-edn: " web-xml-edn-s)
                    ;; step 1:  inject servlet config stanza to web.xml.edn
-                   (let [web-xml-edn-out-file (io/file edn-tmp-dir web-xml-edn)]
+                   (let [web-xml-edn-out-file (io/file edn-tmp-dir (boot/tmp-path web-xml-edn-f))]
                      ;; (println "edn out: " web-xml-edn-out-file)
                      (io/make-parents web-xml-edn-out-file)
                      (spit web-xml-edn-out-file web-xml-edn-s))
@@ -897,10 +909,12 @@
   (let [edn-tmp (boot/tmp-dir!)
         prev-pre (atom nil)
         odir (if dir dir web-inf-dir)]
+    ;; (println "ODIR: " odir)
     (boot/with-pre-wrap fileset
       (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-                       boot/input-files
-                       (boot/by-name [web-xml-edn]))]
+                                boot/input-files
+                                (boot/by-re [(re-pattern (str web-xml-edn "$"))]))]
+            ;; (boot/by-name [web-xml-edn]))]
         (if (> (count web-xml-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
         (if (= (count web-xml-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
 
@@ -929,58 +943,54 @@
 (boot/deftask watch
   "watch for gae project"
   []
-  (comp (builtin/watch)
-        (builtin/speak)
-        (builtin/sift :to-resource #{#".*\.clj$"})
-        (builtin/sift :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (builtin/target :no-clean true)))
+  (let [mod (str (-> (boot/get-env) :gae :module))]
+    (comp (builtin/watch)
+          (builtin/speak)
+          (builtin/sift :move {#"(.*\.clj$)" (str mod "/" classes-dir "/$1")})
+          (builtin/target :no-clean true))))
 
 (boot/deftask dev
   "make a dev build - including reloader"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
   (let [keep (or keep false)
-        verbose (or verbose false)]
-  (comp (install-sdk)
-        (libs :verbose verbose)
-        (logging :verbose verbose)
-        (appstats :verbose verbose)
-        (builtin/javac)
-        (builtin/sift :to-asset #{#"(.*\.clj$)"}
-                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (reloader :keep keep :verbose verbose)
-        ;; deal with reloader impl source:
-        (builtin/sift :move {#"(^[^/]*\.clj$)" "WEB-INF/classes/$1"})
-        (filters :keep keep :verbose verbose)
-        (servlets :keep keep :verbose verbose)
-        (webxml :verbose verbose)
-        (appengine :verbose verbose)
-        (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
-        ;; filter out backups
-        (builtin/sift :include #{(re-pattern ".*~$")} :invert true)
-        (builtin/target)
-        )))
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module))]
+    (comp (install-sdk)
+          (libs :verbose verbose)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (reloader :keep keep :verbose verbose)
+          (filters :keep keep :verbose verbose)
+          (servlets :keep keep :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/target :dir #{(str "target/" mod)})
+          )))
 
 (boot/deftask prod
-  "make a dev build - including reloader"
+  "make a prod build"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
   (let [keep (or keep false)
-        verbose (or verbose false)]
-  (comp (install-sdk)
-        (libs :verbose verbose)
-        (logging :verbose verbose)
-        (appstats :verbose verbose)
-        (builtin/javac)
-        (builtin/sift :to-asset #{#"(.*\.clj$)"}
-                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        (filters :keep false :verbose verbose)
-        (servlets :keep false :verbose verbose)
-        (webxml :verbose verbose)
-        (appengine :verbose verbose)
-        (builtin/sift :move {#"(.*\.class$)" "WEB-INF/classes/$1"})
-        (builtin/target)
-        )))
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module))]
+    (comp (install-sdk)
+          (libs :verbose verbose)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (filters :keep false :verbose verbose)
+          (servlets :keep false :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/target :dir #{(str "target/" mod)})
+          )))
 
 ;; (boot/deftask mods
 ;;   "modules"
@@ -1021,57 +1031,3 @@
 ;;         (let [tmp-dir (boot/tmp-dir!)
 ;;         prev-pre (atom nil)
 ;;         dir (if dir dir web-inf-dir)]
-
-    ;; (boot/with-pre-wrap fileset
-    ;;   (let [gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-    ;;                    boot/input-files
-    ;;                    (boot/by-name [gae-edn]))]
-    ;;     (if (> (count gae-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
-    ;;     (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
-
-    ;;     (let [gae-edn-f (first gae-edn-fs)
-    ;;           gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
-    ;;           version (-> (boot/get-env) :gae :version)
-    ;;           version (str "rev-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
-    ;;           module (:module gae-forms)
-    ;;           ;; module (if (:module gae-forms)
-    ;;           ;;          (str (:module gae-forms) "-" version)
-    ;;           ;;          nil)
-    ;;           gae-map (assoc gae-forms
-    ;;                          :app-id (-> (boot/get-env) :gae :app-id)
-    ;;                          :version version
-    ;;                          :module module)]
-    ;;       (let [content (stencil/render-file
-    ;;                      "migae/boot_gae/xml.appengine-web.mustache"
-    ;;                      gae-map)]
-    ;;         (if verbose (println content))
-    ;;         (util/info "Configuring appengine-web.xml\n")
-    ;;         (let [xml-out-path (str dir "/appengine-web.xml")
-    ;;               xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-    ;;               ]
-    ;;           (spit xml-out-file content)))))
-    ;;   (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
-    ;;   )
-
-  ;; (let [;; edn-fs (->> fileset boot/input-files (boot/by-name [edn]))]
-        ;; edn-f (boot/tmp-file (first edn-fs))
-        ;; edn-content (-> edn-f slurp read-string)
-        ;; coords (if (= pkg-mgr :webjars)
-        ;;          (->> edn-content vals (reduce merge) vals)
-        ;;          '())
-        ;; pod-env (update-in (boot/get-env) [:dependencies] conj '[cheshire "5.5.0"])
-        ;; pod-env (update-in (boot/get-env)
-        ;;                    [:source-paths] #(identity %2)
-        ;;                    (concat '[[boot/aether "2.5.5"]
-        ;;                              [boot/core "2.5.5"]
-        ;;                              [boot/pod "2.5.5"]]
-        ;;                            coords))
-        ;; pod (future (pod/make-pod pod-env))]
-    ;; (boot/with-pre-wrap [fileset]
-    ;;   (boot/empty-dir! tgt)
-      ;; (pod/with-eval-in @bower-pod
-      ;;   (require '[clojure.java.shell :refer [sh]]
-      ;;            '[clojure.java.io :as io]
-      ;;            '[clojure.string :as str]
-      ;;            '[clojure.pprint :as pp]
-      ;;            '[cheshire.core :as json])

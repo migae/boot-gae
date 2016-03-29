@@ -9,7 +9,7 @@
 
 (defn -destroy [^Filter this])
 
-(def modified-namespaces (ns-tracker ["./"]))
+(def modified-namespaces (ns-tracker ["{{module}}"]))
 
 (defn -doFilter
   [^Filter this
