@@ -1,100 +1,31 @@
-= boot-gae
+= boot-gae: task library
 
-A Boot library for Google App Engine development in Clojure.
-
-[IMPORTANT]
-====
-This documentation is a little bit out of date, and, like the code, is
-unpolished and partially incomplete.  In particular the reader will
-probably need to have some idea of how boot works.
-====
-
-IMPORTANT: not yet pushed to clojars.  If you want to give it a try,
-you must fork/clone it and run `$ boot pom jar install` to put it in
-your local repo.
-
-IMPORTANT: you do not need a GAE account to experiment!  The GAE SDK
-contains everything you need to run webapps on the local devserver;
-you only need a GAE account if you want to deploy to the production
-servers.
-
-= overview
-
-=== toc
-
-* <<start,getting started>>
-* <<configuration>>
-* <<tasks>>
-* <<how,how it works>>
-* <<repl>>
-* <<config,config>>
-* <<servlets,servlets>>
-* <<config-map,configuration map>>
-* <<pgming,gae programming with clojure>>
-
-[[start]]
-= getting started
-
-Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
-the repo.  It contains `tasklib`, the task lib itself, and
-`greetings-gae`, a test/demo program that uses the tasklib.
-
-[source,clojure]
-.build.boot
-----
-...
-:dependencies ... [migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"] ...
-...
-(require '[migae.boot-gae :as gae] ...
-----
 
 [NOTE]
 ====
-This documentation will use the namespace alias `gae`, as just shown,
-to refer to boot-gae tasks.  For example, `gae/config` means `migae.boot-gae/config`.
+This documentation will use the namespace alias `gae` to refer to
+`boot-gae` tasks.  For example, `gae/config` means
+`migae.boot-gae/config`.
 ====
 
 
-Then you need to configure your web app.  See the sample app, `config`
-directory, for examples.  Doc to come...
-
-
-[[configuration]]
-== configuration
-
-Both the `WEB-INF/appengine-web.xml` and `WEB-INF/web.xml`
-configuration files required by the GAE servlet container are
-automatically generated from `.edn` files.
-
-The dev server will automatically reload `appengine-web.xml` if it
-changes, but unfortunately the same cannot be said for `web.xml`. If
-you change it - that is, if you change your configuration files you'll
-need to rebuild and restart the server.
-
-
-[[tasks]]
-= tasks
-
 * `<<appengine>>` generate gae `appengine-web.xml` config file
-* `<<webxml>>`    generate gae `web.xml` config file
 * `<<deploy>>`             install a new version of the application onto the server
 * `<<dev>>`                build for dev (includes `reloader` task)
-* `<<filters>>`            generate a "meta-filter" file with gen-class directives and aot-compile it to generate filters
+* `<<filters>>`            generate a "filter-generator" clojure file containing gen-class directives and aot-compile it to generate filter class files
 * `<<install-sdk>>`        unpack and install the SDK zipfile
 * `<<libs>>`               install dependency jars in <build-dir>/WEB-INF/lib
 * `<<logging>>`		   generate and install gae logging config files (e.g. `logging.properties`, `log4j.properties`)
 * `<<prod>>`		   build for production (without `reloader` task)
 * `<<reloader>>`	   generate and aot-compile reloader filter used to support reload-on-refresh
 * `<<run>>`		   run devappserver
-* `<<servlets>>`	   generate a "meta-servlet" file with gen-class directives and aot-compile it to produce servlets
+* `<<servlets>>`	   generate a "servlet-generator" clojure file containing gen-class directives and aot-compile it to produce servlet class files
 * `<<watch>>`		   watch input, write to output on change
+* `<<webxml>>`    generate gae `web.xml` config file
 
 
-==== aot
 
-The builtin `aot` command does not allow specification of output dir so we hacked it up
-
-[[config-appengine]]
+[[appengine]]
 ==== appengine
 
 Generates `WEB-INF/appengine-web.xml` from `appengine.edn`
@@ -103,9 +34,6 @@ Generates `WEB-INF/appengine-web.xml` from `appengine.edn`
 
 Enables Google's built-in Appstats service.  Configure in `appstats.edn`
 
-==== clj
-
-Move clojure source files to `WEB-INF/classes`
 
 [[deploy]]
 === deploy
@@ -121,17 +49,27 @@ The build pipeline:
 
 [source,clojure]
 ----
-  (comp (install-sdk)
-        (libs)
-        (logging)
-        (clj)
-        (appstats)
-        (filters :keep keep)
-        (servlets :keep keep)
-        (reloader :keep keep)
-        (webxml)
-        (appengine)
-        ))
+(boot/deftask dev
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module :name))]
+    (comp (install-sdk)
+          (libs :verbose verbose)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (reloader :keep keep :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (filters :keep keep :verbose verbose)
+          (servlets :keep keep :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/target :dir #{(str "target/" mod)})
+          )))
 ----
 
 Some of the tasks can be run in any order (e.g. filters and servlets) but `webxml` must be run after `servlets`, `filters`, `appstats` and `reloader`, since it uses the `web.xml.edn` file they elaborate.  The `reloader` ``filters`, and `appstats` tasks are optional.
@@ -149,6 +87,34 @@ Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 
 [[logging]]
 === logging
+
+[[prod]]
+=== prod
+
+[source,clojure]
+----
+(boot/deftask prod
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module :name))]
+    (comp (install-sdk)
+          (libs :verbose verbose)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (filters :keep false :verbose verbose)
+          (servlets :keep false :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/target :dir #{(str "target/" mod)})
+          )))
+----
+
 
 [[reloader]]
 === reloader
@@ -284,7 +250,7 @@ Servlet implementations will look like this:
 === watch
 
 [[webxml]]
-==== webxml
+=== webxml
 
 Generates `WEB-INF/web.xml` from `web.xml.edn`.  Run this task *after*
 you run `servlets`, `filters`, `reloader`, and `appstats`.
