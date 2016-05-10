@@ -428,10 +428,10 @@
    v verbose bool          "Print invocation args"]
   (if verbose (println "TASK: boot-gae/deploy"))
   (validate-tools-api-jar)
-  ;; (println "PARAMS: " *opts*)
+  (println "PARAMS: " *opts*)
   (let [opts (merge {:sdk-root (:sdk-root config-map)
                      :use-java7 true
-                     :build-dir (:build-dir config-map)}
+                     :build-dir (gae-app-dir)} ;; (:build-dir config-map)}
                     *opts*)
         _ (println "OPTS: " opts)
         params (into [] (for [[k v] (remove (comp nil? second)
@@ -578,6 +578,7 @@
    ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
    (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
 
+;; FIXME: drive this from logging.edn
 (boot/deftask logging
   "configure gae logging"
   [l log LOG kw ":log4j or :jul"
@@ -610,6 +611,11 @@
          (spit out-file content)
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
+
+(boot/deftask rollback
+  "appcfg rollback"
+  [v verbose bool "Print trace messages."]
+  )
 
 (boot/deftask reloader
   "generate reloader servlet filter"
