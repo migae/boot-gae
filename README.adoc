@@ -1,29 +1,577 @@
 = boot-gae
 
-A Boot library for Google App Engine development in Clojure.
+A library of boot tasks for Google App Engine development in Clojure.
 
-See tasklib link:tasklib/README.adoc[README] for info on the tasklib itself.
+To experiment, see the link:greetings/README.adoc[greetings] subdir.
 
-To experiment, see the link:greetings-gae/README.adoc[greetings-gae] subdir.
+[IMPORTANT]
+====
+This documentation is a little bit out of date, and, like the code, is
+unpolished and partially incomplete.  In particular the reader will
+probably need to have some idea of how boot works.
+====
+
+NOTE: not yet pushed to clojars.  If you want to give it a try,
+you must fork/clone it and run `$ boot pom jar install` to put it in
+your local repo.
+
+NOTE: you do not need a GAE account to experiment!  The GAE SDK
+contains everything you need to run webapps on the local devserver;
+you only need a GAE account if you want to deploy to the production
+servers.
 
 
+WARNING:  Appengine does not support Java 1.8.  Use 1.7.
+
+Table of Contents
+
+* <<getting-started,getting started>>
+* <<tasks,tasks>>
+* <<configuration,configuration>>
+ ** <<dependencies,dependencies>>
+ ** <<xml-config,xml config files>>
+ ** <<edn,edn config files>>
+ ** <<reloading,reloading>>
+* <<app-id,app id and version>>
+* <<foolets,servlets and filters>>
+ ** <<servlets,servlets>>
+ ** <<filters,filters>>
+* <<logging,logging>>
+* <<performance,performance>>
+* <<testing,testing>>
+* <<modules,modules>>
+* <<debugging,debugging>>
+* <<todo,todo>>
+
+
+
+[[getting-started]]
+=== getting started
+
+Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
+the repo.  It contains `tasklib`, the task library itself, and two
+sample webapps:
+
+* link:greetings[greetings] demonstrates multiple servlets and filters. uses compojure.
+* link:modules[modules] demonstrates implementation of https://cloud.google.com/appengine/docs/java/modules/[GAE Modules].
+
+
+
+[[tasks]]
+== tasks
+
+`boot-gae` is a task library comprising 13 tasks.
+
+This allows the user to experiment task by task, which is the best way
+to learn how the whole thing works.  It also makes it easier to debug
+build pipelines.
+
+link:tasklib/README.adoc[tasks]
+
+[[configuration]]
+= configuration
+
+[[dependencies]]
+==== dependencies
+
+WARNING: The GAE java SDK is in the vicinity of 200 MB as of version
+1.9.37, so the first time you run `boot` with that as a dependency it
+may take a _long_ time (like 5-10 minutes or more depending on your
+network connection etc.)  Currently `boot` does not have a download
+progress indicator, so it may appear to hang.  You can monitor
+progress by running `$ boot -vv help` .
+
+At a minimum, the `build.boot` file for a GAE webapp must include a
+dependency for Clojure, for the Appengine Java SDK, and for boot-gae.
+In addition, if you want to use GAE services (e.g. the
+https://cloud.google.com/appengine/docs/java/datastore/[datastore],
+you must include the appropriate API jar. For example:
+
+IMPORTANT: Note that there are two SDKs, an Appengine-Java-SDK and an
+Appengine API SDK.  The former should really be called something like
+"dev tools SDK", because it's a zip file containing the stuff you need
+to run the devserver, local service stubs for testing etc.  Your
+production app code will not use it, so it does not get uploaded on
+deploy.  The API SDK, by contrast, contains the libraries you need to
+use GAE services like memcache and datastore.  If your app does not
+use any services (e.g. it just serves static pages) you don't need it.
+
+[source,clojure]
+.build.boot
+----
+ :dependencies '[[org.clojure/clojure "1.8.0" :scope "runtime"]
+ 	         [javax.servlet/servlet-api "2.5" :scope "provided"]
+ 	         [migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"]
+          	 ;; this is for the GAE runtime (NB: scope provided)
+	         [com.google.appengine/appengine-java-sdk LATEST :scope "provided" :extension "zip"]
+		 ;; OPTIONAL:
+		 ;; this is for GAE services, e.g. datastore (NB: scope runtime)
+		 ;; [com.google.appengine/appengine-api-1.0-sdk LATEST :scope "runtime"]
+          	 ;; this is required for gae appstats:
+                 ;; [com.google.appengine/appengine-api-labs LATEST :scope "provided"]
+	         ...]
+----
+
+NOTE: Google
+https://cloud.google.com/appengine/docs/java/tools/appstats[Appstats
+for Java] depends on the memcache service, so to use it you must
+include both the API SDK and the API LABS dependencies.
+
+The purpose of the GAE Java SDK dependency is just to make sure it
+gets downloaded (its enormous so it takes a long time).  The
+`install-sdk` task will explode the downloaded zip file to `:sdk-root`
+(default: `~/.appengine`), and at runtime the devserver will look
+there for the jars it needs.
+
+NOTE: The java sdk is not used by app code, it's just there for the
+devserver and test service stubs, so it should have :scope provided
+even though it will not in fact be provided by the prod env.
+
+WARNING: Including the API jar may result in a dramatic increase in
+servlet startup time on the dev server.  You can fix this by running
+the devserver without the default `javaagent`.  This improves startup
+time, but at the cost of the security checks performed by the default
+agent `appengine-agent.jar` (included in the SDK).  See the
+link:tasklib/README.adoc#run[run] task for details.
+
+
+[[fileset]]
+==== fileset
+
+The initial boot fileset is determined by the `:asset-paths`,
+`:resource-paths`, and `:source-paths` keys in the `set-env!`
+directive in `build.boot`.  See
+https://github.com/boot-clj/boot/wiki/Boot-Environment[Boot
+Environment] and
+https://github.com/boot-clj/boot/wiki/Filesets[Filesets] on the boot
+wiki for details.
+
+The important thing to understand is that putting directories in these
+lists causes the files they contain to be added to the initial fileset,
+and marks them with INPUT and OUTPUT flags (boot calls these "roles",
+see https://github.com/boot-clj/boot/wiki/Filesets[Filesets]) as follows:
+
+* :asset-paths:     [-INPUT,+OUTPUT]
+* :resource-paths:  [+INPUT,+OUTPUT]
+* :source-paths:    [+INPUT,-OUTPUT]
+
+A detailed explanation of how `boot` works is beyond the scope of this
+document, but at a minimum you need to know that only files marked
++OUTPUT will be written out to the target directory by the built-in
+https://github.com/boot-clj/boot/blob/master/doc/boot.task.built-in.md#target[target]
+task; files marked with ‑OUTPUT (i.e. files found in `:source-paths`) will
+not be written out.  You can see this in action by running
+
+[source,shell]
+----
+$ boot show -f target
+----
+
+in any directory containing a `build.boot` file.  The `show -f` task
+will print all the files in the initial fileset (although it will not
+indicate their INPUT/OUTPUT "roles"), and the `target` task will write
+the +OUTPUT files to the output directory ("target/" by default).  So
+if you put e.g. `src/clj` in the `:source-paths` list, they will *not*
+be copied to the output directory.  The implicit assumption is that
+source files are there to be transformed (compiled).  If you want
+source files to be copied rather than transformed, you can use the
+https://github.com/boot-clj/boot/blob/master/doc/boot.task.built-in.md#sift[sift]
+task.  `boot-gae` handles this sort of thing automatically, so you
+should put your Clojure source files in `:source-paths`.
+
+Similarly, the implicit assumption with respect to files in
+`:asset-paths` and `:resource-paths` is that the former are there to
+be copied to the output directory without transformation, and the
+latter are there to be copied to the output directory and _possibly_
+transformed.
+
+However, `boot` tasks have to power to finesse things; they can move
+files to and from these "roles", for example.  Some `boot-gae` tasks
+do this.
+
+With the above in mind here's how `boot-gae` tasks treat the fileset:
+
+* the files in `:asset-paths` will be copied directly to `target/`
+  (the default output directory); `boot-gae` tasks do not move or
+  transform these files.  The example apps put `resources/public` in
+  `:asset-paths`; this puts everything in that source directory at the
+  top level of the webapp "context".  _You do not need to put a
+  `WEB-INF` directory in_ `resources/public`!  That directory will be
+  automatically created and added to the fileset by `boot-gae` tasks
+  as appropriate.
+
+ ** however, you _may_ have a `resources/public/WEB-INF` directory; for
+  example, you would do this if you want to include a `queue.xml` file
+  to configure GAE task queues: `resources/public/WEB-INF/queue.xml`
+  would then be copied directly to `target/WEB-INF/queue.xml`.
+
+* `:resource-paths` should contain the Clojure source files you want
+  to copy to `target/` without aot-compilation.  `boot-gae` will take
+  care of moving them to `WEB-INF/classes`.
+
+* `:source-paths` should contain any source code you need to compile
+  (Java files, Clojure files to be aot-compiled), plus your `boot-gae`
+  configuration `.edn` files.
+
+==== xml config files
+
+GAE webapps require at least two XML configuration files,
+`WEB-INF/web.xml` and `WEB-INF/appengine-web.xml`.  The former
+configures your webapp; the latter configures appengine.
+
+* https://cloud.google.com/appengine/docs/java/config/webxml[The Deployment Descriptor: web.xml]
+* https://cloud.google.com/appengine/docs/java/config/appconfig[Configuring appengine-web.xml]
+
+`boot-gae` generates these files automatically from `.edn` files.
+
+Your app may also include several other XML configuration files,
+depending on which GAE facilities you use:
+
+* https://cloud.google.com/appengine/docs/java/config/indexconfig[WEB-INF/datastore-indexes.xml]
+* https://cloud.google.com/appengine/docs/java/config/cron[WEB-INF/cron.xml]
+* https://cloud.google.com/appengine/docs/java/config/queue[WEB-INF/queue.xml]
+* https://cloud.google.com/appengine/docs/flexible/java/how-requests-are-routed#routing_with_a_dispatch_file[WEB-INF/dispatch.xml]
+
+See also https://cloud.google.com/appengine/docs/flexible/java/xml-configuration-files[Organizing xml Configuration Files].
+
+
+`boot-gae` does not currently provide any direct support for these
+files; to use them, create them in your `:resource-paths`, e.g.
+
+IMPORTANT: You could also use yaml files to configure a GAE webapp;
+see
+https://cloud.google.com/appengine/docs/flexible/java/yaml-configuration-files[Organizing
+yaml Configuration Files].  Since we have `edn` we don't need no
+stinkin' yaml or xml!  `boot-gae` uses no yaml files, but does not
+stop you from including them in your `:asset-paths`.
+
+
+[[edn]]
+==== edn config files
+
+[,]
+""
+XML files!? We don' need no stinkin XML files!
+""
+
+
+[[reloading]]
+==== reloading
+The dev server will automatically reload `appengine-web.xml` if it
+changes, but unfortunately the same cannot be said for `web.xml`. If
+you change it - that is, if you make changes to your configuration
+files that would changes `web.xml` you'll need to rebuild the app and
+reboot the devserver.
+
+
+[[foolets]]
+
+== filters and servlets
+
+
+[[filters]]
+=== filters
+
+Note that the sample apps put filter source code in `filters/`
+rather than `src/clj/`, and add that path to the `:resource-paths`
+list in `build.boot`.  So e.g. `filters/hello_filter.clj` will be
+copied to `target/WEB-INF/classes/hello_filter.clj`.  This makes the
+namespaces single-level, e.g. `filters/hello_filter.clj` has namespace
+`hello-filter`, not `filters/hello-filter`.
+
+The class file corresponding to this implementation file must be
+configured in `filters.edn`, which the sample code puts in `config/`,
+which is put in `:source-paths`.
+
+You don't have to follow this convention; I use it just because I
+prefer to treat filters as separate from application code and have
+them at the root of the `classes` hierarcy..
+
+[[servlets]]
+=== servlets
+
+
+The App Engine functions as a servlet container (it's actually a
+modified version of Jetty).  Servlet containers look on disk for
+compiled byte code when they need to load a servlet.  That means a
+Clojure webapp must aot-compile a servlet; usually this is done using
+`gen-class` in some form.
+
+You will notice that `gen-class` is nowhere to be found the Clojure
+source code of this app.  That's because it depends on the `boot-gae`
+task library, which contains a `servlets` task that uses data in the
+`servlets.edn` config file to generate the appropriate `gen-class` code and
+aot-compiles it at build time.  You only have to do that once, unless
+you change the servlet configuration in `build.boot`.
+
+This is of course not the only possible technique we could use to
+implement servlets in Clojure.  `boot-gae` could easily be extended to
+suppport alternative mechanisms, but this one seems to work pretty
+well.
+
+Once you've configured a servlet in `servlets.edn`, you must provide an
+implementation for it.  Again there are various ways to do this; this
+sample code relies on the `defservice` macro of the
+https://ring-clojure.github.io/ring/ring.util.servlet.html[ring.util.servlet]
+component of https://github.com/ring-clojure/ring[ring].  See the
+sample source code for details.
+
+
+[[logging]]
+== logging
+
+Log levels are a little tricky.  GAE uses two kinds of log, "Request
+Logs" and "Application Logs".
+
+The documentation says: "A request log is automatically written by App
+Engine for each request handled by your app... Each request log
+contains a list of application logs (AppLogLine) associated with that
+request..."
+
+This makes sense, since any logging your webapp does will always be
+associated with a particular request.
+
+Applications can log to the standard JUL levels (SEVERE, WARNING,
+INFO, CONFIG, FINE, FINER, and FINEST); however, the log levels used
+for AppLogLines are DEBUG, INFO, WARN, ERROR, and FATAL.  Obviously
+this means that the GAE Request Log system must map the former to the
+latter in some manner, but I have not found any documentation on this.
+
+The following table shows the various log levels involved:
+
+.Log Levels
+|===
+| Clojure tools.logging | log4j | java.util.logging | AppLogLine
+| :trace | TRACE | N/A | N/A
+
+| :debug | DEBUG | FINE? | DEBUG
+
+| :info | INFO | INFO, CONFIG? | INFO
+
+| :warn | WARN | WARNING | WARN
+
+| :error | ERROR | SEVERE? | ERROR
+
+| :fatal | FATAL | SEVERE? | FATAL
+
+| | OFF |
+|===
+
+The mapping from the log4j-based levels used by clojure.tools.logging
+to the JUL-based levels used by GAE is not entirely clear to me.
+You'll have to experiment.
+
+If you use JUL logging, then you'll use `WEB-INF/logging.properties`,
+and in that file you'll have to set the logging level to one of the
+JUL levels, e.g. TRACE won't work, since it's not a JUL level.
+
+If you want to use log4j (or slf4j, etc.), then ...
+
+==== log4j2
+
+"Apache Log4j 2 is an upgrade to Log4j that provides significant
+improvements over its predecessor, Log4j 1.x,..."
+
+* https://logging.apache.org/log4j/2.0/faq.html#which_jars[log4j2 which jars?]
+
+
+* http://logging.apache.org/log4j/2.x/[Apache Log4j2]
+* http://mattjquinn.com/2014/02/11/log4j2-clojure.html[Logging from Clojure with log4j2]
+* http://logging.apache.org/log4j/2.x/manual/webapp.html#Servlet-2.5[Servlet 2.5 Web Applications]
+
+References:
+
+*  http://blog.xam.de/2010/03/logging-in-google-appengine-for-java.html[Logging in the Google AppEngine for Java (GAE/J) with slf4j, log4j and jul - and using Maven] - an old but useful blog article
+* https://docs.oracle.com/javase/7/docs/technotes/guides/logging/overview.html[Java Logging Overview]
+* https://docs.oracle.com/javase/7/docs/api/java/util/logging/package-summary.html[java.util.logging]
+* http://docs.oracle.com/javase/6/docs/api/java/util/logging/Logger.html[java.util.logging.Logger]
+* http://docs.oracle.com/javase/6/docs/api/java/util/logging/Level.html[java.util.logging.Level]
+* https://cloud.google.com/appengine/docs/java/javadoc/com/google/appengine/api/log/LogService.LogLevel[GAE LogService.LogLevel]
+* https://cloud.google.com/appengine/docs/java/logs/#Java_writing_application_logs[Reading and Writing Application Logs (GAE)]
+* https://github.com/clojure/tools.logging[Clojure tools.logging]
+* https://en.wikipedia.org/wiki/Log4j[Log4j (Wikipedia)]
+
+TODO:  --jvm_flag="-Dlog4j.configuration=log4j.props"
+
+
+[[performance]]
+== performance
+
+If devserver startup is preposterously slow pass the
+`--no-java-agent` flag to the `run` task.
+
+[[testing]]
+== testing
+
+==== devserver
+
+You'll use the dev server from the SDK to test locally.  Running `$
+boot gae/run` gives:
+
+[source,shell]
+----
+Executing
+	[/Library/Java/JavaVirtualMachines/jdk1.8.0_66.jdk/Contents/Home/jre/bin/java,
+	-XstartOnFirstThread,
+	-javaagent:/Users/gar/.appengine-sdk/appengine-java-sdk-1.9.34/lib/agent/appengine-agent.jar,
+	-Xbootclasspath/p:/Users/gar/.appengine-sdk/appengine-java-sdk-1.9.34/lib/override/appengine-dev-jdk-overrides.jar,
+	-classpath,
+	 /Users/gar/.appengine-sdk/appengine-java-sdk-1.9.34/lib/appengine-tools-api.jar,
+	 com.google.appengine.tools.development.DevAppServerMain,
+	--property=kickstart.user.dir=/Users/gar/boot/boot-gae/modules/greetings,
+	--sdk_root=/Users/gar/.appengine-sdk/appengine-java-sdk-1.9.34,
+	 /Users/gar/boot/boot-gae/modules/greetings/target]
+----
+
+Notice that the classpath is empty.  The dev server runs in its own
+JVM, and sets the classpath to include only the SDK jars needed plus
+the jars in `WEB-INF/lib`, plus the files in `WEB-INF/classes`.
+
+==== service stubs
+
+https://cloud.google.com/appengine/docs/java/tools/localunittesting[Local Unit Testing for Java]
+
+To run tests using GAE services like memcache and datastore, add the
+following dependencies, scoped to "test", to your `build.boot`:
+
+[source,clojure]
+----
+    [com.google.appengine/appengine-api-1.0-sdk LATEST :scope "test"]
+    [com.google.appengine/appengine-api-labs LATEST :scope "test"]
+    [com.google.appengine/appengine-api-stubs LATEST :scope "test"]
+    [com.google.appengine/appengine-tools-sdk LATEST :scope "test"]
+----
+
+IMPORTANT: The online documentation mentions that you need
+`${SDK_ROOT}/lib/impl/appengine-api.jar` on your classpath.  This jar
+is included in the SDK but is not separately available as a maven
+artifact.  However, maven artifact
+`com.google.appengine/appengine-api-1.0-sdk` is the same thing,
+versioned.
+
+
+[[app-id]]
+=== app id and version
+
+A GAE webapp requires an app id and version.  Your source project will
+have a project name and version.  You must specify these separately in
+your `build.boot` file.  The app id will probably be different than
+the project name, since the latter may be namespaced, and a GAE app id
+must follow a different grammar.  You set the app id when you register
+your app in Google's Cloud Platform console.  Your project version
+will most likely conform to Clojure standard practice, something like
+`0.1.0`, or `0.1.0-SNAPSHOT`.  GAE version strings must conform to a
+fairly restrictive grammar: "The version identifier can contain
+lowercase letters, digits, and hyphens. It cannot begin with the
+prefix "ah-" and the names "default" and "latest" are reserved and
+cannot be used."
+
+You can use Clojure version strings for your app version.  `boot-gae`
+will lowercase it, translate "." to "-", and since "-SNAPSHOT" is for
+source code rather than running apps, it will be stripped from the
+version string.
+
+Furthermore, Google recommends that version strings begin with a
+lowercase letter, to make sure that version strings are not confused
+with instance numbers. (See
+https://cloud.google.com/appengine/docs/java/config/appconfig#Java_appengine_web_xml_About_appengine_web_xml[About
+appengine-web.xml]).  So `boot-gae` will prepend "r" to your
+version string.
+
+For example, if your project version string is `0.1.0-SNAPSHOT`, then
+your gae app version string will be `r-0-1-0`.
+
+[[modules]]
+=== modules
+
+Naming and versioning of modules is a bit mysterious.
+
+Each module will end up as an exploded war directory in the ear
+directory.  _The name of the war dir is determined by the `<web-uri>`
+element in the `META-INF/application.xml` file in the ear source tree_.
+
+GAE allows you to run multiple versions of each module.  Each
+module+version should have a unique name.  You set the name of each
+module in its `WEB-INF/appengine-web.xml`, in the `<module>` element.
+Note that that `<application>` element of that file is ignored (since
+it is a module in an app rather than an app itself).  Not sure about
+the `<version>` element.
+
+The name set in `<module>` will be used at runtime to construct the
+URL at which the module is accessible.  For example,
+`<module>foo</module>` of app `myapp` will be accessible at
+`http://foo.myapp.appspot.com`.
+
+But that module name is _not_ used at build time.  The
+`META-INF/application.xml` file, which controls the structure of the
+app, does not refer to the module name set in each module's
+`WEB-INF/appengine-web.xml` file.  Instead, the root directory of each
+module is referenced, in a `<module>` element.  For example:
+
+[source,xml]
+----
+  <module>
+    <web>
+      <web-uri>appengine-modules-shardedcounter-1.0</web-uri>
+      <context-root>appengine-modules-shardedcounter</context-root>
+    </web>
+  </module>
+----
+
+WARNING: "App Engine will ignore the <context-root> elements, so HTTP
+clients need not prepend it to the URL path when addressing a module."
+
+But if `application.xml` does not reference the modules, how does the
+final build product get built?  How does the build system know what to
+put in the ear, and what to name it?
+
+Different build systems do it differently.  The (outdated) maven
+system appended the version string and ".war" to the maven
+artifact id.  The gradle system uses the module name from
+`settings.gradle` to name the wardir path in `build/exploded-app`; if
+the gradle build file specifies a version, that will be appended to
+the module name.  The `<web-uri>` element in `application.xml` must
+then match the constructed module name.
+
+Here's how `boot-gae` does it.  The module name must be specified in
+the `appengine.edn` config file of each module using the
+`:module` key.  That name will be used for:
+
+* the value of `<module>` in `appengine-web.xml` for each module
+* the name of the target dir in each module's project tree
+* the name of the war dir in the ear target output dir
+* the value of `<web-uri>` in the ear `META-INF/application.xml`
+
+[[debugging]]
+== debugging
+
+You could probably use something like
+https://github.com/cemerick/drawbridge[Drawbridge] with a Clojure
+webapp.
+
+If you know what you're doing you can use Java debugging facilities to
+remotely debug the dev server.  For example:
+
+`$ boot gae/run --jvm-flags "-agentlib:jdwp=transport=dt_socket,server=y,address=7000"`
+
+I have no idea how to use this to debug clojure code, but if you're
+dying to know how the dev server works you can use this to step
+through its startup code, at least.
+
+[[todo]]
 === todo
 
 * split servlet/filter configs into separate files, e.g. `servlets/foo.edn`
 
 * cherry-picking servlets and filters for building
 
-* a `prod` task for production builds
-
 * support for android/gradle-style build variants and flavors
 
 * multiple configs for same servlet - e.g. for experimenting with
   various initialization parameters, etc.
 
-* change config syntax from vector of maps with :ns key to map keyed
-  by servlet namespace sym
-
-* full Clojure (e.g. ring/compojure) support for filters
+* full Clojure (e.g. ring/compojure) support for filters.  i.e. treat
+  them the same way we treat servlets, provide a `deffilter` macro etc.
 
 * support some kind of threading syntax for filter config?  currently
   the filter chain is implicitly defined by the order in which the
