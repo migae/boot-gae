@@ -24,10 +24,23 @@ webapp up and running on GAE with a repl-like development environment.
 $ git clone https://github.com/migae/boot-gae.git
 $ cd boot-gae/tasklib
 $ boot pom jar install
+----
+
+WARNING: The first time you run `boot` with the GAE Java SDK
+dependency, the SDK zip file will be downloaded.  This is a large file
+so it may take a _very_ long time; be patient.  To monitor progress,
+use the `-vv` switch with the `boot` command, e.g. `$ boot -vv help`
+will download the dependencies before showing the help screen, and
+`-vv` will display download progress.  Once `$ boot pom jar install`
+completes, run:
+
+[source,clojure]
+----
 $ cd ../greetings-gae
 $ ./boot.sh gae/build
 $ ./boot.sh gae/run
 ----
+
 
 NOTE: Use of `boot.sh` is optional; it uses the JVM options in
 `./.boot-jvm-options`.  See
@@ -58,30 +71,5 @@ Check `<build-root>/WEB-INF/lib` to make sure your jars are there.
 You probably did not run `gae/libs`.
 
 == the code
-
-The App Engine functions as a servlet container (it's actually a
-modified version of Jetty).  Servlet containers look on disk for
-compiled byte code when they need to load a servlet.  That means a
-Clojure webapp must aot-compile a servlet; usually this is done using
-`gen-class` in some form.
-
-You will notice that `gen-class` is nowhere to be found the Clojure
-source code of this app.  That's because it depends on the `boot-gae`
-task library, which contains a `servlets` task that uses data in
-`.edn` config files to generate the appropriate `gen-class` code and
-aot-compiles it at build time.  You only have to do that once, unless
-you change the servlet configuration in `build.boot`.
-
-This is of course not the only possible technique we could use to
-implement servlets in Clojure.  `boot-gae` could easily be extended to
-suppport alternative mechanisms, but this one seems to work pretty
-well.
-
-Once you've configured a servlet in `build.boot`, you must provide an
-implementation for it.  Again there are various ways to do this; this
-sample code relies on the `defservice` macro of the
-https://ring-clojure.github.io/ring/ring.util.servlet.html[ring.util.servlet]
-component of https://github.com/ring-clojure/ring[ring].  See the
-source in `src/main/clojure/migae` for examples.
 
 See the README for https://github.com/migae/boot-gae for more info.

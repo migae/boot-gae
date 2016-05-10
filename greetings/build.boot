@@ -1,4 +1,4 @@
-(def +project+ 'tmp/hello-gae)
+(def +project+ 'tmp.greetings/boot-test)
 (def +version+ "0.1.0-SNAPSHOT")
 
 ;; gae does not yet support java 1.8
@@ -16,32 +16,40 @@
 ;; then:  $ setjdk 1.7
 
 (set-env!
- :gae {:app-id "boot-test"
-       :version "0-1-0-snapshot"}
+ :gae {:app-id +project+
+       :module "greetings"
+       :version +version+}
  :asset-paths #{"resources/public"}
- :source-paths #{"config" "src/clj" "filters" "src/java"}
+ :resource-paths #{"src/clj" "filters"}
+ :source-paths #{"config" "src/java"}
+
  :repositories {"clojars" "https://clojars.org/repo"
-                "maven-central" "http://mvnrepository.com"
-                "central" "http://repo1.maven.org/maven2/"}
- :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
-                   [boot/core "2.5.2" :scope "provided"]
+                "central" "http://repo1.maven.org/maven2/"
+                "maven-central" "http://mvnrepository.com"}
+ :dependencies   '[[org.clojure/clojure "1.8.0" :scope "runtime"]
+                   [javax.servlet/servlet-api "2.5" :scope "runtime"]
                    [migae/boot-gae "0.1.0-SNAPSHOT" :scope "test"]
 
-                   ;; appengine setup: api version 1.0, sdk version LATEST
-                   [com.google.appengine/appengine-api-1.0-sdk LATEST :scope "provided"]
+                   ;; this is for the GAE runtime (NB: scope provided):
                    [com.google.appengine/appengine-java-sdk LATEST :scope "provided" :extension "zip"]
-                   ;; this is required for gae appstats:
-                   [com.google.appengine/appengine-api-labs LATEST] ;; <!-- <scope>test</scope> -->
-                   ;; we need this so we can import KickStart:
-                   [com.google.appengine/appengine-tools-sdk LATEST :scope "test"]
 
-                   [javax.servlet/servlet-api "2.5" :scope "provided"]
+                   ;; this is for the GAE services (NB: scope runtime):
+                   [com.google.appengine/appengine-api-1.0-sdk LATEST :scope "runtime"]
+
+                   ;; ;; this is required for gae appstats:
+                   [com.google.appengine/appengine-api-labs LATEST :scope "provided"]
+
+                   ;; [org.mobileink/migae.datastore "0.3.3-SNAPSHOT" :scope "runtime"]
+
+                   [hiccup/hiccup "1.0.5"]
+                   [cheshire/cheshire "5.3.1"]
+
                    [compojure/compojure "1.4.0"]
                    [ring/ring-core "1.4.0"]
                    [ring/ring-devel "1.4.0"]
                    [ring/ring-servlet "1.4.0"]
                    [ring/ring-defaults "0.1.5"]
-                   [ns-tracker/ns-tracker "0.3.0"]
+                   [ns-tracker/ns-tracker "0.3.0" :scope "test"]
                    ])
 
 (require '[migae.boot-gae :as gae]
