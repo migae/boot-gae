@@ -1,4 +1,9 @@
 (ns greetings.hello
+  (:refer-clojure :exclude [read read-string])
+  (:import #_[com.google.appengine.api.datastore EntityNotFoundException]
+           [java.io InputStream ByteArrayInputStream]
+           [java.util Collections]
+           [java.lang IllegalArgumentException RuntimeException])
   (:require [compojure.core :refer :all]
             [compojure.route :as route]
             [ring.util.response :as rsp]
@@ -8,12 +13,12 @@
 
 (defroutes hello-routes
     (GET "/hello/:name" [name :as rqst]
-         (do (println "handler:  greetings.hello on " (:request-method rqst)
+         (do (println "hello servlet handler:  greetings.hello on " (:request-method rqst)
                       (str (.getRequestURL (:servlet-request rqst))))
-             (-> (rsp/response (str "Hello there, " name))
+             (-> (rsp/response (str "Hello there from the hello servlet, " name))
                  (rsp/content-type "text/html"))))
     (GET "/foo/:name" [name :as rqst]
-         (do (println "handler:  greetings.hello on " (:request-method rqst)
+         (do (println "hello servlet handler:  greetings.hello on " (:request-method rqst)
                       (str (.getRequestURL (:servlet-request rqst))))
              (-> (rsp/response (str name "?  I pity the foo!"))
                  (rsp/content-type "text/html"))))

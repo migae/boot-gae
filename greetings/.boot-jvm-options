@@ -1,1 +1,1 @@
--ea -esa -client -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xverify:none -XX:MaxPermSize=128m -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled
+-ea -esa -client -Xmx6g -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xverify:none -XX:MaxPermSize=128m -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled

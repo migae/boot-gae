@@ -32,6 +32,6 @@
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
-  (println "inbound:  hello-filter on: " (str (.getMethod rqst) " " (.getRequestURL rqst)))
+  (println "INBOUND:  hello-filter on: " (str (.getMethod rqst) " " (.getRequestURL rqst)))
   (.doFilter chain rqst resp)
   (println "outbound: hello-filter on: " (str (.getMethod rqst) " " (.getRequestURL rqst))))

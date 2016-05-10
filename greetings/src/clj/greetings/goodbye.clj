@@ -8,7 +8,7 @@
 
 (defroutes goodbye-routes
     (GET "/goodbye/:name" [name]
-         (-> (rsp/response (str "Alas, " name "! Hasta la vista, baby!"))
+         (-> (rsp/response (str "Hasta la vista, " name "!  From the Goodbye servlet."))
              (rsp/content-type "text/html")))
     (route/not-found "<h1>Goodbye route not found</h1>"))
 

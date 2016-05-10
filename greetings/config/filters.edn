@@ -7,4 +7,4 @@
             :name "goodbye filter"
             :display {:name "goodbye filter"}
             :urls [{:url "/goodbye/*"}]
-            :desc {:text "goodbye filter"}}]})
+            :desc {:text "goodbye filter"}}]}
