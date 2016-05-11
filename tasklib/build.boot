@@ -9,11 +9,10 @@
                 #_["maven-central" "http://mvnrepository.com"]
                 "central" "http://repo1.maven.org/maven2/"}
  :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
-                   [boot/core "2.5.5" :scope "provided"]
+                   [boot/core "2.6.0-SNAPSHOT" :scope "provided"]
+                   [boot/pod "2.6.0-SNAPSHOT" :scope "provided"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
-                   ;; this is for the GAE runtime (NB: scope provided):
-                   [com.google.appengine/appengine-java-sdk LATEST :scope "provided" :extension "zip"]
                    ;; ;; we need this so we can import KickStart for the run task:
                    [com.google.appengine/appengine-tools-sdk RELEASE]
                    ])
