@@ -12,9 +12,10 @@
                    [boot/core "2.5.5" :scope "provided"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
-                   [com.google.appengine/appengine-java-sdk LATEST :scope "runtime" :extension "zip"]
-                   ;; ;; we need this so we can import KickStart:
-                   ;; [com.google.appengine/appengine-tools-sdk "LATEST"]
+                   ;; this is for the GAE runtime (NB: scope provided):
+                   [com.google.appengine/appengine-java-sdk LATEST :scope "provided" :extension "zip"]
+                   ;; ;; we need this so we can import KickStart for the run task:
+                   [com.google.appengine/appengine-tools-sdk RELEASE]
                    ])
 
 (task-options!
