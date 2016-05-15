@@ -14,6 +14,7 @@
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
                    ;; ;; we need this so we can import KickStart for the run task:
+                   ;; FIXME: what if user wants a different sdk version?
                    [com.google.appengine/appengine-tools-sdk RELEASE]
                    ])
 
