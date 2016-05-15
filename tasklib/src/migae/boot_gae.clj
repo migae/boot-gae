@@ -25,6 +25,18 @@
   ;; (let [mod (-> (boot/get-env) :gae :module :name)]
   ;;   (str (if mod (str mod "/")) "WEB-INF")))
 
+;; http://stackoverflow.com/questions/2751033/clojure-program-reading-its-own-manifest-mf
+(defn manifest-map
+  "Returns the mainAttributes of the manifest of the passed in class as a map."
+  [j]
+  (println "JAR: " j (type j))
+  (->> (str "jar:file:" j "!/META-INF/MANIFEST.MF")
+       clojure.java.io/input-stream
+       java.util.jar.Manifest.
+       .getMainAttributes
+       (map (fn [[k v]] [(str k) v]))
+       (into {})))
+
 (defn expand-home [s]
   (if (or (.startsWith s "~") (.startsWith s "$HOME"))
     (str/replace-first s "~" (System/getProperty "user.home"))
@@ -33,11 +45,11 @@
 (def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
                       zip (filter #(.startsWith (.getName %) "appengine-java-sdk") jars)]
                   (if (empty? zip)
-                    nil
+                    (println "appengine-java-sdk zipfile not found")
                     (let [fname (first (for [f zip] (.getName f)))
                           sdk-string (subs fname 0 (.lastIndexOf fname "."))]
                       ;; (println "sdk-string: " sdk-string)
-                     sdk-string))))
+                      sdk-string))))
 
 (def config-map (merge {:build-dir "target"
                         :sdk-root (let [dir (str (System/getenv "HOME") "/.appengine-sdk")]
@@ -336,8 +348,7 @@
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                                    boot/input-files
+       (let [web-xml-edn-files (->> (boot/user-files fileset)
                                     (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
                     ;; (boot/by-name [web-xml-edn]))
              web-xml-edn-f (condp = (count web-xml-edn-files)
@@ -351,9 +362,8 @@
              fileset
              (do
                ;; (add-appstats! reloader-impl-ns urls in-file out-file)
-               (let [appstats-fs (->> (boot/fileset-diff @prev-pre fileset)
-                                     boot/input-files
-                                     (boot/by-name [appstats-edn]))]
+               (let [appstats-fs (->> (boot/input-files fileset)
+                                      (boot/by-name [appstats-edn]))]
                  (if (> (count appstats-fs) 1)
                    (throw (Exception. (str "only one " appstats-edn " file allowed"))))
                  (if (= (count appstats-fs) 0)
@@ -372,6 +382,39 @@
                            (boot/add-source edn-tmp)
                            boot/commit!))))))
 
+(boot/deftask cache
+  "control cache: retrieve, save, clean"
+  [c clean bool "clean config - clear cache first"
+   t trace bool "dump cache to stdout if verbose=true"
+   r retrieve bool "retrieve cached master edn config file and sync to fileset (default)"
+   s save bool "save master edn config file from fileset to cache"
+   v verbose bool "verbose"]
+  ;; default to retrieve
+  (if (and retrieve save)
+    (util/exit-error
+     (util/fail "boot-gae/cache: only one of :retrieve and :save may be specified\n")))
+  (let [retrieve (or retrieve (not save))
+        save (or (not retrieve) save)]
+    (boot/with-pre-wrap fileset
+      (let [cache-dir (boot/cache-dir! :boot-gae/build)]
+        (if verbose (println "cache-dir: " (.getPath cache-dir)))
+        (if clean
+          (do (if verbose (util/info (str "Clearing boot-gae cache\n")))
+              (boot/empty-dir! cache-dir)
+              (boot/commit! fileset))
+          (if retrieve
+            (do (println "RETRIEVING " (type cache-dir))
+                (let [;;fs (boot/add-cached-asset fileset (io/file "boot-gae/build") identity)
+                      fs (boot/add-asset fileset cache-dir)]
+                  #_(println "FS: " fs)
+                  (boot/commit! fs)))
+            (if save
+              (let [_ (println "SAVING")
+                    fs (into [] (boot/output-dirs fileset))]
+                ;;(println "fs: " fs (type fs))
+                (apply boot/sync! cache-dir fs)
+                fileset)
+              fileset)))))))
 
 ;; FIXME: generate correct reloaders. do it by hand for now
 (boot/deftask ear
@@ -382,15 +425,87 @@
    v verbose bool "Print trace messages."]
   (println "EAR: " modules)
   (let [paths (set (map #(:war %) modules))
-        m (or meta-inf "./")]
-        ;; pipeline (map #(reloader :module (:name %)) modules)]
-    (println "META-INF:" m)
+        m (or meta-inf "./")
+        tmpdir (boot/tmp-dir!)
+
+        dfl-scopes #{"compile" "runtime" "provided"}
+        scopes dfl-scopes
+        ;; scopes     (-> dfl-scopes
+        ;;                (set/union include-scope)
+        ;;                (set/difference exclude-scope))
+        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
+        checkouts  (->> (boot/get-checkouts)
+                        (filter (comp scope? :dep val))
+                        (into {}))
+        co-jars    (->> checkouts (map (comp :jar val)))
+        co-dirs    (->> checkouts (map (comp :dir val)))
+
+        ;; coords '[tmp/greetings "0.1.0-SNAPSHOT"]
+        ;; jar-path (pod/resolve-dependency-jar (boot/get-env) coords)
+        jar-path (.getPath (first co-jars))
+        target-path "greetings"
+
+        out (io/file (.getPath tmpdir) target-path)
+
+        ;; pod-env (update-in (boot/get-env) [:dependencies]
+        ;;                    #(identity %2)
+        ;;                    (concat '[[boot/aether "2.6.0-SNAPSHOT"]
+        ;;                              [boot/core "2.6.0-SNAPSHOT"]
+        ;;                              [boot/pod "2.6.0-SNAPSHOT"]
+        ;;                              [tmp/greetings "0.1.0-SNAPSHOT"]]))
+        ;;                              ;; (vector coords)))
+        ;; ear-pod (future (pod/make-pod pod-env))
+        ]
+    (println "boot-env deps: " (:dependencies (boot/get-env)))
+    ;; (println "pod-env deps: " (:dependencies pod-env))
+    (println "jar-path:" jar-path)
+    (println "out path:" out)
+    (println "checkouts: " checkouts)
+    (println "co-jars: " (type (first co-jars)))
+    (println "co-dirs: " co-dirs)
+    ;; (builtin/sift :move {(re-pattern (.getPath (first co-dirs))) "foobar"})
+    ;; (builtin/sift :add-asset #{"foobar"})
     (comp
-     (builtin/sift :add-asset #{m}
-                   :include #{#"^META-INF.*$"})
-     (builtin/sift :add-asset paths)
-     ;; (apply comp pipeline)
-     (builtin/target))))
+     (builtin/sift :add-asset #{(.getPath (first co-dirs))})
+     (builtin/sift :move {#"(^.*)" "foo/$1"})
+     (builtin/sift :add-asset #{"assets"}))
+    ))
+    ;; #_(comp
+    ;;  (boot/with-pre-wrap [fileset]
+    ;;    (pod/unpack-jar jar-path out)
+    ;;    (-> fileset
+    ;;        (boot/add-asset tmpdir)
+    ;;        boot/commit!))
+    ;;  (builtin/sift :include #{#"greetings.*META-INF.*$"} :invert true)
+
+    ;;  #_(boot/with-pre-wrap [fileset]
+    ;;    (pod/with-eval-in @ear-pod
+    ;;      (require '[boot.pod :as pod]
+    ;;               '[boot.core :as boot]
+    ;;               '[boot.util :as util]
+    ;;               '[boot.task.built-in :as builtin]
+    ;;               '[clojure.java.io :as io])
+    ;;      ;; (boot/with-pre-wrap [fs]
+    ;;      (let [jar-path ~(pod/resolve-dependency-jar (boot/get-env) coords)
+    ;;            out (io/file ~(.getPath tmpdir) ~target-path)
+    ;;            ]
+    ;;        (println (str "jar-path 2:" jar-path))
+    ;;        (println (str "module: " (get ~(manifest-map jar-path) "module")))
+    ;;        (println (str "out:" out))
+    ;;        (pod/unpack-jar jar-path out)))
+    ;;    (-> fileset
+    ;;        (boot/add-asset tmpdir)
+    ;;        boot/commit!))
+    ;;  #_(builtin/sift :include #{#"greetings.*META-INF.*$"} :invert true)
+    ;;  )))
+
+  ;;  (builtin/show :fileset true))
+      ;; fileset)))
+
+      ;;    #_(builtin/sift :add-asset paths)
+      ;;    ;; (apply comp pipeline)
+      ;;    #_(builtin/target)))
+      ;; fileset)))
 
 (boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -490,9 +605,8 @@
              fileset
              (do
                ;; step 0: read the edn files
-               (let [filters-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                            boot/input-files
-                            (boot/by-name [filters-edn]))]
+               (let [filters-edn-files (->> (boot/input-files fileset)
+                                            (boot/by-name [filters-edn]))]
                  (if (> (count filters-edn-files) 1)
                    (throw (Exception. "only one filters.edn file allowed")))
                  (if (= (count filters-edn-files) 0)
@@ -543,9 +657,9 @@
    v verbose bool "Print trace messages"]
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
   ;; (print-task "install-sdk" *opts*)
-  (let [release (or release "LATEST")
+  (let [release (or release "RELEASE")
         coords (vector 'com.google.appengine/appengine-java-sdk
-                       "LATEST"
+                       "RELEASE"
                        :extension "zip")
         jar-path (pod/resolve-dependency-jar (boot/get-env) coords)
         sdk-dir (io/as-file (:sdk-root config-map))
@@ -557,7 +671,7 @@
                 tools-api-jar (str/join file-sep [(:sdk-root config-map) "lib" "appengine-tools-api.jar"])]
             (if (not (.exists (io/as-file tools-api-jar)))
               (do
-                (println "Found sdk-dir but not its contents; re-exploding")
+                (println (str "Found sdk-dir " sdk-dir " but not its contents; re-exploding"))
                 (boot/empty-dir! sdk-dir)
                 (println "Exploding SDK\n from: " jar-path "\n to: " (.getPath sdk-dir))
                 (pod/unpack-jar jar-path (.getParent sdk-dir)))
@@ -569,12 +683,13 @@
           (pod/unpack-jar jar-path (.getParent sdk-dir))))
       fileset)))
 
+;; FIXME:  for dev phase, we want to include deps in test scope
 (boot/deftask libs
   ""
   [v verbose bool "Print trace messages."]
   (comp
-   (builtin/uber :as-jars true)
-   (builtin/sift :include #{#"zip$"} :invert true)
+   (builtin/uber :as-jars true :exclude-scope #{"provided"})
+   ;; (builtin/sift :include #{#"zip$"} :invert true)
    ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
    (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
 
@@ -852,9 +967,8 @@
              fileset
              (do
                ;; step 0: read the edn files
-               (let [servlets-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                            boot/input-files
-                            (boot/by-name [servlets-edn]))]
+               (let [servlets-edn-files (->> (boot/input-files fileset)
+                                             (boot/by-name [servlets-edn]))]
                  (if (> (count servlets-edn-files) 1)
                    (throw (Exception. "only one servlets.edn file allowed")))
                  (if (= (count servlets-edn-files) 0)
@@ -955,13 +1069,14 @@
           (builtin/sift :move {#"(.*\.clj$)" (str mod "/" classes-dir "/$1")})
           (builtin/target :no-clean true))))
 
-(boot/deftask dev
+(boot/deftask assemble
   "make a dev build - including reloader"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
   (let [keep (or keep false)
         verbose (or verbose false)
         mod (str (-> (boot/get-env) :gae :module))]
+    ;; (println "MODULE: " mod)
     (comp (install-sdk)
           (libs :verbose verbose)
           (logging :verbose verbose)
@@ -976,6 +1091,53 @@
           (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
           (builtin/target :dir #{(str "target/" mod)})
           )))
+
+(boot/deftask build
+  "dev build, source only"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module))]
+    (println "MODULE: " mod)
+    (comp ;; (install-sdk)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (reloader :keep keep :verbose verbose)
+          (filters :keep keep :verbose verbose)
+          (servlets :keep keep :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          ;; FIXME: use cache instead?
+          ;; (builtin/target :dir #{(str "target/" mod)})
+          )))
+
+(boot/deftask make
+  "dev build, source only"
+  [v verbose bool "verbose"]
+  (let [mod (str (-> (boot/get-env) :gae :module))
+        rgx (re-pattern (str "(^" mod "/.*clj$)"))
+        prev (atom nil)]
+    (println "MODULE: " mod)
+    (println "REGEX: " rgx)
+    ;; (comp
+    (boot/with-pre-wrap [fileset]
+      (let [changes (->> (boot/fileset-diff @prev fileset)
+                         boot/output-files
+                         (map :path))
+            fs (boot/new-fileset)
+            cache-dir (boot/cache-dir! :boot-gae/build)]
+        (doseq [path changes]
+          (if verbose (util/info (str "changed: " path "\n")))
+          (let [in-file (boot/tmp-file (boot/tmp-get fileset path))
+                out-file (if (str/ends-with? path "clj")
+                           (doto (io/file cache-dir classes-dir path) io/make-parents)
+                           (doto (io/file cache-dir path) io/make-parents))]
+            (io/copy in-file out-file))))
+      (reset! prev fileset))))
 
 (boot/deftask prod
   "make a prod build"
