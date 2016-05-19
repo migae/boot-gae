@@ -4,12 +4,15 @@
             [clojure.string :as str]
             [clojure.set :as set]
             [clojure.pprint :as pp]
+            [me.raynes.fs :as fs]
             [stencil.core :as stencil]
             [boot.user]
             [boot.pod :as pod]
             [boot.core :as boot]
             [boot.util :as util]
-            [boot.task.built-in :as builtin])
+            [boot.task.built-in :as builtin]
+            [boot.file            :as file]
+            [boot.from.digest     :as digest])
   (:import [com.google.appengine.tools KickStart]
            [java.io File]
            [java.net URL URLClassLoader]))
@@ -421,10 +424,10 @@
   "construct ear dir"
   [k keep bool "keep intermediate .clj files"
    i meta-inf META-INF str "META-INF dir path"
-   m modules MODULES edn "modules map"
+   ;; m modules MODULES edn "modules map"
    v verbose bool "Print trace messages."]
-  (println "EAR: " modules)
-  (let [paths (set (map #(:war %) modules))
+  ;; (println "EAR: " modules)
+  (let [;; paths (set (map #(:war %) modules))
         m (or meta-inf "./")
         tmpdir (boot/tmp-dir!)
 
@@ -440,36 +443,66 @@
         co-jars    (->> checkouts (map (comp :jar val)))
         co-dirs    (->> checkouts (map (comp :dir val)))
 
-        ;; coords '[tmp/greetings "0.1.0-SNAPSHOT"]
-        ;; jar-path (pod/resolve-dependency-jar (boot/get-env) coords)
-        jar-path (.getPath (first co-jars))
-        target-path "greetings"
-
-        out (io/file (.getPath tmpdir) target-path)
-
-        ;; pod-env (update-in (boot/get-env) [:dependencies]
-        ;;                    #(identity %2)
-        ;;                    (concat '[[boot/aether "2.6.0-SNAPSHOT"]
-        ;;                              [boot/core "2.6.0-SNAPSHOT"]
-        ;;                              [boot/pod "2.6.0-SNAPSHOT"]
-        ;;                              [tmp/greetings "0.1.0-SNAPSHOT"]]))
-        ;;                              ;; (vector coords)))
-        ;; ear-pod (future (pod/make-pod pod-env))
+        checkout-vec (-> (boot/get-env) :checkouts)
+        cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
         ]
-    (println "boot-env deps: " (:dependencies (boot/get-env)))
-    ;; (println "pod-env deps: " (:dependencies pod-env))
-    (println "jar-path:" jar-path)
-    (println "out path:" out)
-    (println "checkouts: " checkouts)
-    (println "co-jars: " (type (first co-jars)))
+    ;; (println "checkouts: " checkouts)
+    (println "checkout-vec: " checkout-vec)
     (println "co-dirs: " co-dirs)
+    (println "cos: " cos)
+    (boot/with-pre-wrap [fileset]
+      (loop [cos cos
+             fs fileset]
+        (if (empty? cos)
+          fs
+          (let [co (first cos)]
+                (println "CO: " co)
+                (println "COORDS: " (:coords co))
+                (println "MODULE: " (:module co))
+                (let [target-path (:module co)
+                      out (io/file (.getPath tmpdir) target-path)
+                      corec (get checkouts (first (:coords co)))
+                      co-dir (:dir corec)
+                      jar-path (.getPath (:jar corec))
+                      ;; jar-path (pod/resolve-dependency-jar (boot/get-env) (:coords co))
+
+                      ;; in-file (boot/tmp-file (boot/tmp-get fileset path))
+                      tmpdir (boot/tmp-dir!)
+                      out-dir (doto (io/file tmpdir (:module co)) io/make-parents)
+                      newfs (boot/new-fileset)
+                      ]
+                  (println "OUTDIR: " out-dir)
+                  (fs/copy-dir co-dir out-dir)
+                  ;; (println "checkout: " corec)
+                  (println "jar-path: " jar-path)
+                  (println "co-dir: " (.getPath co-dir))
+                  ;; (pp/pprint (file-seq out-dir))
+                  (println "target-path: " target-path)
+                  (recur (rest cos)
+                         (-> fs
+                             (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
+                             ;; (builtin/sift :include #{(re-pattern (str mod "/META-INF/.*"))}
+                             ;;               :invert true)
+                             (boot/commit!))))))))))
+
+        ;; (comp
+        ;;  (builtin/sift :add-asset #{co-dir})
+        ;;  (builtin/sift :move {#"(^.*)" (str mod "/$1")})
+        ;;  (builtin/sift :include #{(re-pattern (str "^" mod "/META-INF/.*"))} :invert true)
+        ;;  (builtin/sift :add-asset #{"assets"}))
+        ;; ))))
+
+    ;; (println "boot-env deps: " (:dependencies (boot/get-env)))
+    ;; ;; (println "pod-env deps: " (:dependencies pod-env))
+    ;; (println "jar-path:" jar-path)
+    ;; (println "out path:" out)
+    ;; (println "co-jars: " (type (first co-jars)))
     ;; (builtin/sift :move {(re-pattern (.getPath (first co-dirs))) "foobar"})
     ;; (builtin/sift :add-asset #{"foobar"})
-    (comp
-     (builtin/sift :add-asset #{(.getPath (first co-dirs))})
-     (builtin/sift :move {#"(^.*)" "foo/$1"})
-     (builtin/sift :add-asset #{"assets"}))
-    ))
+
+
+
+
     ;; #_(comp
     ;;  (boot/with-pre-wrap [fileset]
     ;;    (pod/unpack-jar jar-path out)
@@ -683,15 +716,141 @@
           (pod/unpack-jar jar-path (.getParent sdk-dir))))
       fileset)))
 
+;;(core/deftask buber
+(defn buber
+  [tgt]
+  (println "BUBER ")
+  (let [;; tgt        (boot/tmp-dir!)
+        cache      (boot/cache-dir! ::uber :global true)
+        dfl-scopes #{"compile" "runtime"}
+        scopes     dfl-scopes
+        ;; scopes     (-> dfl-scopes
+        ;;                (set/union include-scope)
+        ;;                (set/difference exclude-scope))
+        _ (println "SCOPES: " dfl-scopes)
+        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
+        jars       (-> pod/env ;; (boot/get-env)
+                       (update-in [:dependencies] (partial filter scope?))
+                       pod/resolve-dependency-jars)
+        _ (println "JARS: " jars)
+        jars       (remove #(.endsWith (.getName %) ".pom") jars)
+        checkouts  (->> (boot/get-checkouts)
+                        (filter (comp scope? :dep val))
+                        (into {}))
+        co-jars    (->> checkouts (map (comp :jar val)))
+        ;; co-dirs    (->> checkouts (map (comp :dir val)))
+        ;; exclude    (or exclude pod/standard-jar-exclusions)
+        ;; merge      (or merge pod/standard-jar-mergers)
+        ;; reducer    (fn [xs jar]
+        ;;              (boot/add-cached-resource
+        ;;                xs (digest/md5 jar) (partial pod/unpack-jar jar)
+        ;;                :include include :exclude exclude :mergers merge))
+        ;; co-reducer #(boot/add-resource
+        ;;               %1 %2 :include include :exclude exclude :mergers merge)
+        ]
+    ;; (boot/with-pre-wrap [fs]
+    ;; (println "co jars: " co-jars)
+      (when (seq jars)
+        (doseq [jar jars] ;; (reduce into [] [jars co-jars])]
+          (let [dest (doto (io/file tgt (.getName jar)) io/make-parents)]
+            (println "dest: " dest)
+            (file/copy-atomically jar dest))))))
+
+      ;;       (when-not (.exists src)
+      ;;         (println "CACHING " name)
+      ;;         (util/dbug* "Caching jar %s...\n" name)
+      ;;         (file/copy-atomically jar src))
+      ;;       (util/dbug* "Adding cached jar %s...\n" name)
+      ;;       (println (format "Adding cached jar %s...\n" name))
+      ;;       (file/hard-link src (io/file tgt name)))))
+      ;; #_(boot/commit! (if as-jars
+      ;;                 (boot/add-resource fs tgt)
+      ;;                 (reduce co-reducer (reduce reducer fs jars) co-dirs)))))
+
 ;; FIXME:  for dev phase, we want to include deps in test scope
 (boot/deftask libs
   ""
   [v verbose bool "Print trace messages."]
-  (comp
-   (builtin/uber :as-jars true :exclude-scope #{"provided"})
-   ;; (builtin/sift :include #{#"zip$"} :invert true)
-   ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
-   (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
+  (let [checkout-vec (-> (boot/get-env) :checkouts)
+        cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
+
+        dfl-scopes #{"compile" "runtime" "provided"}
+        scopes dfl-scopes
+        ;; scopes     (-> dfl-scopes
+        ;;                (set/union include-scope)
+        ;;                (set/difference exclude-scope))
+        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
+        checkouts  (->> (boot/get-checkouts)
+                        (filter (comp scope? :dep val))
+                        (into {}))
+        cache      (boot/cache-dir! ::uber :global true)
+        ]
+    ;; (println "CACHE: " cache)
+    ;; (println "COS: " cos)
+    (boot/with-pre-wrap [fileset]
+      (let [tmpdir     (boot/tmp-dir!)]
+      (doseq [co cos]
+        (let [mod (if (:default co) "default"
+                      (if-let [mod (:module co)]
+                        mod "default"))
+              coords (:coords co)
+              pod-env (update-in (dissoc (boot/get-env) :checkouts)
+                                 [:dependencies] #(identity %2)
+                                 (concat '[[boot/core "2.6.0-SNAPSHOT"]
+                                           [boot/pod "2.6.0-SNAPSHOT"]]
+                                         (vector coords)))
+              pod (future (pod/make-pod pod-env))]
+          (if verbose (println "MODULE: " mod))
+          (pod/with-eval-in @pod
+              (require '[boot.pod :as pod]
+                       '[boot.task.built-in :as builtin]
+                       '[boot.util :as util]
+                       '[boot.core :as boot]
+                       '[boot.from.digest :as digest]
+                       '[boot.file :as file]
+                       '[clojure.java.io :as io])
+              (let [dfl-scopes #{"compile" "runtime" "test"}
+                    scopes dfl-scopes
+                    scope? #(contains? scopes (:scope (util/dep-as-map %)))
+                    co-jar (pod/resolve-dependency-jar (boot/get-env) '~coords)
+                    jars   (remove #(= (str co-jar) (.getPath %))
+                                   (-> pod/env
+                                       (update-in [:dependencies] (partial filter scope?))
+                                       (pod/resolve-dependency-jars true)))]
+                (doseq [jar jars]
+                  (let [hash (digest/md5 jar)
+                        name (str hash "-" (.getName jar))
+                        tmpjar-path (str ~mod "/WEB-INF/lib/" (.getName jar))
+                        cached-jar  (io/file ~(.getPath cache) hash)]
+                    (when-not (.exists cached-jar)
+                      (if ~verbose (util/info "Caching jar %s...\n" name))
+                      (file/copy-atomically jar cached-jar))
+                    (if ~verbose (util/info "Adding cached jar %s...\n" tmpjar-path))
+                    (file/hard-link cached-jar (doto (io/file ~(.getPath tmpdir) tmpjar-path)
+                                                 io/make-parents))))))))
+      (boot/commit! (boot/add-resource fileset tmpdir))))))
+
+                  ;; (recur (rest jars)
+                  ;;        fs
+
+              ;;     ;;(println "dest: " dest)
+              ;;     (file/hard-link jar dest)
+              ;;     #_(file/copy-atomically jar dest)))
+              ;; ;;~(buber out-dir) ;; :as-jars true :exclude-scope #{"provided"})
+              ;; ))))))
+
+            ;; #_(pod/copy-dependency-jar-entries pod/env
+            ;;                                    ~(.getPath out-dir)
+            ;;                                    '~coords
+            ;;                                    #"^.*clj$"
+            ;;                                    )))))))
+
+    ;; #_(comp
+    ;;  (builtin/uber :as-jars true :exclude-scope #{"provided"})
+    ;;  ;; (builtin/sift :include #{#"zip$"} :invert true)
+    ;;  ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
+    ;;  (builtin/sift :move {#"(.*\.jar$)" (str mod "/" lib-dir "/$1")})
+    ;;  (builtin/sift :include #{#".*jar$"}))))
 
 ;; FIXME: drive this from logging.edn
 (boot/deftask logging
@@ -1111,6 +1270,7 @@
           (appengine :verbose verbose)
           (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
           (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(^.*)" (str mod "/$1")})
           ;; FIXME: use cache instead?
           ;; (builtin/target :dir #{(str "target/" mod)})
           )))
@@ -1119,25 +1279,28 @@
   "dev build, source only"
   [v verbose bool "verbose"]
   (let [mod (str (-> (boot/get-env) :gae :module))
-        rgx (re-pattern (str "(^" mod "/.*clj$)"))
-        prev (atom nil)]
-    (println "MODULE: " mod)
-    (println "REGEX: " rgx)
-    ;; (comp
-    (boot/with-pre-wrap [fileset]
-      (let [changes (->> (boot/fileset-diff @prev fileset)
-                         boot/output-files
-                         (map :path))
-            fs (boot/new-fileset)
-            cache-dir (boot/cache-dir! :boot-gae/build)]
-        (doseq [path changes]
-          (if verbose (util/info (str "changed: " path "\n")))
-          (let [in-file (boot/tmp-file (boot/tmp-get fileset path))
-                out-file (if (str/ends-with? path "clj")
-                           (doto (io/file cache-dir classes-dir path) io/make-parents)
-                           (doto (io/file cache-dir path) io/make-parents))]
-            (io/copy in-file out-file))))
-      (reset! prev fileset))))
+        prev (atom nil)
+        cache-dir (boot/cache-dir! :boot-gae/build)]
+    ;; (println "MODULE: " mod)
+    (comp
+     (boot/with-pre-wrap [fileset]
+       (let [changes (->> (boot/fileset-diff @prev fileset)
+                          boot/output-files
+                          (map :path))
+             fs (boot/new-fileset)]
+         (doseq [path changes]
+           (if verbose (util/info (str "changed: " path "\n")))
+           (let [in-file (boot/tmp-file (boot/tmp-get fileset path))
+                 out-file (if (str/ends-with? path "clj")
+                            (doto (io/file cache-dir classes-dir path) io/make-parents)
+                            (doto (io/file cache-dir path) io/make-parents))]
+             (io/copy in-file out-file)))
+         (reset! prev fileset)))
+     (builtin/sift :include #{#".*"} :invert true)
+     (boot/with-pre-wrap [fileset]
+      (-> fileset
+          (boot/add-asset cache-dir)
+          boot/commit!)))))
 
 (boot/deftask prod
   "make a prod build"
