@@ -11,6 +11,7 @@
  :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
                    [boot/core "2.6.0-SNAPSHOT" :scope "provided"]
                    [boot/pod "2.6.0-SNAPSHOT" :scope "provided"]
+                   [me.raynes/fs "1.4.6"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
                    ;; ;; we need this so we can import KickStart for the run task:
