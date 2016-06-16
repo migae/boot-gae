@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+
+<!-- doc: http://docs.oracle.com/cd/E13222_01/wls/docs61/programming/app_xml.html#1039577 -->
+
+<application xmlns="http://java.sun.com/xml/ns/javaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/application_6.xsd" version="6">
+  <display-name>boot-test</display-name>
+  <module>
+    <web> <!-- Defines a Web application module in the application file. -->
+      <!--
+          It is recommended the first module is the default module, so that
+          the first deployment will work (and create the mandatory default module,
+          before deploying the second module.
+      -->
+      <!-- web-uri: Defines the location of a Web module in the
+           application file. This is the name of the .war file. first
+           one is default. -->
+      <web-uri>default</web-uri>
+      <!-- context-root ignored by appengine -->
+      <context-root>default-ignored</context-root>
+    </web>
+  </module>
+  <module>
+    <web>
+      <web-uri>greetings</web-uri>
+      <context-root>greetings-ignored</context-root>
+    </web>
+  </module>
+  <library-directory>lib</library-directory>
+</application>

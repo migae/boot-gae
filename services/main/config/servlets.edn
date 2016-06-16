@@ -1,0 +1,7 @@
+{:servlets [{:ns main.core
+             :name "main-servlet"
+             :display {:name "Awesome Main Servlet"}
+             :desc {:text "blah blah"}
+             :urls ["/*"]
+             :params [{:name "greeting" :val "Main"}]
+             :load-on-startup {:order 1}}]}

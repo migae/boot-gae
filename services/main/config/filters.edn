@@ -1,0 +1,5 @@
+{:filters [{:ns main-filter
+            :name "main filter"
+            :display {:name "main filter"}
+            :urls [{:url "/*"}]
+            :desc {:text "main filter"}}]}
