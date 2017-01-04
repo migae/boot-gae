@@ -385,6 +385,55 @@
                            (boot/add-source edn-tmp)
                            boot/commit!))))))
 
+(declare filters install-sdk libs logging reloader servlets webxml)
+
+(boot/deftask assemble
+  "make a dev build - including reloader"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module))]
+    ;; (println "MODULE: " mod)
+    (comp (install-sdk)
+          (libs :verbose verbose)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (reloader :keep keep :verbose verbose)
+          (filters :keep keep :verbose verbose)
+          (servlets :keep keep :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/target :dir #{(str "target/" mod)})
+          )))
+
+(boot/deftask build
+  "dev build, source only"
+  [k keep bool "keep intermediate .clj and .edn files"
+   v verbose bool "verbose"]
+  (let [keep (or keep false)
+        verbose (or verbose false)]
+    ;;     mod (str (-> (boot/get-env) :gae :module))]
+    ;; (println "MODULE: " mod)
+    (comp (install-sdk)
+          (logging :verbose verbose)
+          (appstats :verbose verbose)
+          (builtin/javac)
+          (reloader :keep keep :verbose verbose)
+          (filters :keep keep :verbose verbose)
+          (servlets :keep keep :verbose verbose)
+          (webxml :verbose verbose)
+          (appengine :verbose verbose)
+          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          ;; (builtin/sift :move {#"(^.*)" (str mod "/$1")})
+          ;; FIXME: use cache instead?
+          ;; (builtin/target :dir #{(str "target/" mod)})
+          )))
+
 (boot/deftask cache
   "control cache: retrieve, save, clean"
   [c clean bool "clean config - clear cache first"
@@ -424,13 +473,9 @@
   "construct ear dir"
   [k keep bool "keep intermediate .clj files"
    i meta-inf META-INF str "META-INF dir path"
-   ;; m modules MODULES edn "modules map"
    v verbose bool "Print trace messages."]
-  ;; (println "EAR: " modules)
-  (let [;; paths (set (map #(:war %) modules))
-        m (or meta-inf "./")
+  (let [m (or meta-inf "./")
         tmpdir (boot/tmp-dir!)
-
         dfl-scopes #{"compile" "runtime" "provided"}
         scopes dfl-scopes
         ;; scopes     (-> dfl-scopes
@@ -445,45 +490,26 @@
 
         checkout-vec (-> (boot/get-env) :checkouts)
         cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
+        tmpdir (boot/tmp-dir!)
         ]
-    ;; (println "checkouts: " checkouts)
-    (println "checkout-vec: " checkout-vec)
-    (println "co-dirs: " co-dirs)
-    (println "cos: " cos)
     (boot/with-pre-wrap [fileset]
-      (loop [cos cos
-             fs fileset]
-        (if (empty? cos)
-          fs
-          (let [co (first cos)]
-                (println "CO: " co)
-                (println "COORDS: " (:coords co))
-                (println "MODULE: " (:module co))
-                (let [target-path (:module co)
-                      out (io/file (.getPath tmpdir) target-path)
-                      corec (get checkouts (first (:coords co)))
-                      co-dir (:dir corec)
-                      jar-path (.getPath (:jar corec))
-                      ;; jar-path (pod/resolve-dependency-jar (boot/get-env) (:coords co))
+      (doseq [co cos]
+        (let [;; co (first cos)
+              mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
+          (let [corec (get checkouts (first (:coords co)))
+                co-dir (:dir corec)
+                jar-path (.getPath (:jar corec))
+                out-dir (doto (io/file tmpdir mod) io/make-parents)]
+            ;; (println "co-dir: " co-dir)
+            ;; (println "out-dir: " out-dir)
+            (fs/copy-dir co-dir out-dir))))
+      (-> fileset
+          (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
+          (boot/commit!)))))
 
-                      ;; in-file (boot/tmp-file (boot/tmp-get fileset path))
-                      tmpdir (boot/tmp-dir!)
-                      out-dir (doto (io/file tmpdir (:module co)) io/make-parents)
-                      newfs (boot/new-fileset)
-                      ]
-                  (println "OUTDIR: " out-dir)
-                  (fs/copy-dir co-dir out-dir)
-                  ;; (println "checkout: " corec)
-                  (println "jar-path: " jar-path)
-                  (println "co-dir: " (.getPath co-dir))
-                  ;; (pp/pprint (file-seq out-dir))
-                  (println "target-path: " target-path)
-                  (recur (rest cos)
-                         (-> fs
-                             (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
-                             ;; (builtin/sift :include #{(re-pattern (str mod "/META-INF/.*"))}
-                             ;;               :invert true)
-                             (boot/commit!))))))))))
+                ;; (recur (rest cos)
+                ;;        (-> fs (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
+                ;;            (boot/commit!))))))))))
 
         ;; (comp
         ;;  (builtin/sift :add-asset #{co-dir})
@@ -785,50 +811,53 @@
                         (into {}))
         cache      (boot/cache-dir! ::uber :global true)
         ]
-    ;; (println "CACHE: " cache)
-    ;; (println "COS: " cos)
-    (boot/with-pre-wrap [fileset]
-      (let [tmpdir     (boot/tmp-dir!)]
-      (doseq [co cos]
-        (let [mod (if (:default co) "default"
-                      (if-let [mod (:module co)]
-                        mod "default"))
-              coords (:coords co)
-              pod-env (update-in (dissoc (boot/get-env) :checkouts)
-                                 [:dependencies] #(identity %2)
-                                 (concat '[[boot/core "2.6.0-SNAPSHOT"]
-                                           [boot/pod "2.6.0-SNAPSHOT"]]
-                                         (vector coords)))
-              pod (future (pod/make-pod pod-env))]
-          (if verbose (println "MODULE: " mod))
-          (pod/with-eval-in @pod
-              (require '[boot.pod :as pod]
-                       '[boot.task.built-in :as builtin]
-                       '[boot.util :as util]
-                       '[boot.core :as boot]
-                       '[boot.from.digest :as digest]
-                       '[boot.file :as file]
-                       '[clojure.java.io :as io])
-              (let [dfl-scopes #{"compile" "runtime" "test"}
-                    scopes dfl-scopes
-                    scope? #(contains? scopes (:scope (util/dep-as-map %)))
-                    co-jar (pod/resolve-dependency-jar (boot/get-env) '~coords)
-                    jars   (remove #(= (str co-jar) (.getPath %))
-                                   (-> pod/env
-                                       (update-in [:dependencies] (partial filter scope?))
-                                       (pod/resolve-dependency-jars true)))]
-                (doseq [jar jars]
-                  (let [hash (digest/md5 jar)
-                        name (str hash "-" (.getName jar))
-                        tmpjar-path (str ~mod "/WEB-INF/lib/" (.getName jar))
-                        cached-jar  (io/file ~(.getPath cache) hash)]
-                    (when-not (.exists cached-jar)
-                      (if ~verbose (util/info "Caching jar %s...\n" name))
-                      (file/copy-atomically jar cached-jar))
-                    (if ~verbose (util/info "Adding cached jar %s...\n" tmpjar-path))
-                    (file/hard-link cached-jar (doto (io/file ~(.getPath tmpdir) tmpjar-path)
-                                                 io/make-parents))))))))
-      (boot/commit! (boot/add-resource fileset tmpdir))))))
+    (if (empty? cos)
+      (do
+          (comp
+           (builtin/uber :as-jars true :exclude-scope #{"provided"})
+           ;; (builtin/sift :include #{#"zip$"} :invert true)
+           ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
+           (builtin/sift :include #{#".*jar$"})
+           (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
+          (boot/with-pre-wrap [fileset]
+        (let [tmpdir     (boot/tmp-dir!)]
+          (doseq [co cos]
+            (let [mod (if (:default co) "default"
+                          (if-let [mod (:module co)]
+                            mod "default"))
+                  coords (:coords co)
+                  pod-env (update-in (dissoc (boot/get-env) :checkouts)
+                                     [:dependencies] #(identity %2)
+                                     (concat '[[boot/core "2.6.0-SNAPSHOT"]
+                                               [boot/pod "2.6.0-SNAPSHOT"]]
+                                             (vector coords)))
+                  pod (future (pod/make-pod pod-env))]
+              (if verbose (println "MODULE: " mod))
+              (pod/with-eval-in @pod
+                (require '[boot.pod :as pod] '[boot.util :as util]
+                         '[boot.core :as boot] '[boot.file :as file]
+                         '[boot.task.built-in :as builtin] '[boot.from.digest :as digest]
+                         '[clojure.java.io :as io])
+                (let [dfl-scopes #{"compile" "runtime" "test"}
+                      scopes dfl-scopes
+                      scope? #(contains? scopes (:scope (util/dep-as-map %)))
+                      co-jar (pod/resolve-dependency-jar (boot/get-env) '~coords)
+                      jars   (remove #(= (str co-jar) (.getPath %))
+                                     (-> pod/env
+                                         (update-in [:dependencies] (partial filter scope?))
+                                         (pod/resolve-dependency-jars)))]
+                  (doseq [jar jars]
+                    (let [hash (digest/md5 jar)
+                          name (str hash "-" (.getName jar))
+                          tmpjar-path (str ~mod "/WEB-INF/lib/" (.getName jar))
+                          cached-jar  (io/file ~(.getPath cache) hash)]
+                      (when-not (.exists cached-jar)
+                        (if ~verbose (util/info "Caching jar %s...\n" name))
+                        (file/copy-atomically jar cached-jar))
+                      (if ~verbose (util/info "Adding cached jar %s...\n" tmpjar-path))
+                      (file/hard-link cached-jar (doto (io/file ~(.getPath tmpdir) tmpjar-path)
+                                                   io/make-parents))))))))
+          (boot/commit! (boot/add-resource fileset tmpdir)))))))
 
                   ;; (recur (rest jars)
                   ;;        fs
@@ -885,6 +914,40 @@
          (spit out-file content)
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
+
+(boot/deftask make
+  "dev build, source only"
+  [v verbose bool "verbose"]
+  (let [mod (str (-> (boot/get-env) :gae :module))
+        prev (atom nil)
+        cache-dir (boot/cache-dir! :boot-gae/build)
+        tmpdir (boot/tmp-dir!)]
+    ;; (println "MODULE: " mod)
+    (boot/empty-dir! tmpdir)
+    (comp
+     (boot/with-pre-wrap [fileset]
+       (let [changes (->> (boot/fileset-diff @prev fileset)
+                          boot/output-files
+                          (map :path))]
+             ;; fs (boot/new-fileset)]
+         (doseq [path changes]
+           (if verbose (util/info (str "changed: " path "\n")))
+           (let [in-file (boot/tmp-file (boot/tmp-get fileset path))
+                 out-file (if (str/ends-with? path "clj")
+                            (doto (io/file cache-dir classes-dir path) io/make-parents)
+                            (doto (io/file cache-dir path) io/make-parents))
+                 tmp-file (if (str/ends-with? path "clj")
+                            (doto (io/file tmpdir classes-dir path) io/make-parents)
+                            (doto (io/file tmpdir path) io/make-parents))]
+             (io/copy in-file out-file)
+             (io/copy in-file tmp-file)))
+         (reset! prev fileset)))
+     (builtin/sift :include #{#"^.*$"} :invert true)
+     (boot/with-pre-wrap [fileset]
+       (-> fileset
+           (boot/add-asset tmpdir)
+           boot/commit!))
+     )))
 
 (boot/deftask rollback
   "appcfg rollback"
@@ -1035,18 +1098,28 @@
           ;; _ (println "ARGS: " args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          mod-ports (into [] ;; (for [[mod port] (-> (boot/get-env) :gae :modules)]
-                          (map #(str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
-                                     (:name %)
-                                    ".port="
-                                    (str (:port %)))
-                               modules))
+          checkout-vec (-> (boot/get-env) :checkouts)
+          cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
+          default-mod (filter #(or (:default %) (not (:module %))) cos)
+          _ (if (> (count default-mod) 1)
+              (throw (Exception. "Only one default module allowed" (count default-mod))))
 
-          ;; _ (println "MOD PORTS: " (filter #(:default %) modules))
 
-          http-port (or http-port
-                        (:port (first (filter #(:default %) modules)))
-                        (-> (boot/get-env) :gae :modules :default))
+          mod-ports (remove nil?
+                            (into [] ;; (for [[mod port] (-> (boot/get-env) :gae :modules)]
+                                  (map #(if (:module %)
+                                          (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
+                                               (:module %)
+                                               ".port="
+                                               (str (:port %)))
+                                          nil)
+                                       cos)))
+                            ;; modules))
+
+          _ (println "MOD PORTS: " mod-ports)
+
+          http-port (or http-port (if-let [p (:port (first default-mod))] p nil))
+          _ (println "HTTP-PORT: " http-port)
 
           jvm-flags (for [flag jvm-flags] (str "--jvm_flag=" flag))
           jargs (concat ["com.google.appengine.tools.development.DevAppServerMain"
@@ -1225,82 +1298,9 @@
   (let [mod (str (-> (boot/get-env) :gae :module))]
     (comp (builtin/watch)
           (builtin/speak)
-          (builtin/sift :move {#"(.*\.clj$)" (str mod "/" classes-dir "/$1")})
+          ;; (builtin/sift :move {#"(.*\.clj$)" (str mod "/" classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
           (builtin/target :no-clean true))))
-
-(boot/deftask assemble
-  "make a dev build - including reloader"
-  [k keep bool "keep intermediate .clj and .edn files"
-   v verbose bool "verbose"]
-  (let [keep (or keep false)
-        verbose (or verbose false)
-        mod (str (-> (boot/get-env) :gae :module))]
-    ;; (println "MODULE: " mod)
-    (comp (install-sdk)
-          (libs :verbose verbose)
-          (logging :verbose verbose)
-          (appstats :verbose verbose)
-          (builtin/javac)
-          (reloader :keep keep :verbose verbose)
-          (filters :keep keep :verbose verbose)
-          (servlets :keep keep :verbose verbose)
-          (webxml :verbose verbose)
-          (appengine :verbose verbose)
-          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (builtin/target :dir #{(str "target/" mod)})
-          )))
-
-(boot/deftask build
-  "dev build, source only"
-  [k keep bool "keep intermediate .clj and .edn files"
-   v verbose bool "verbose"]
-  (let [keep (or keep false)
-        verbose (or verbose false)
-        mod (str (-> (boot/get-env) :gae :module))]
-    (println "MODULE: " mod)
-    (comp ;; (install-sdk)
-          (logging :verbose verbose)
-          (appstats :verbose verbose)
-          (builtin/javac)
-          (reloader :keep keep :verbose verbose)
-          (filters :keep keep :verbose verbose)
-          (servlets :keep keep :verbose verbose)
-          (webxml :verbose verbose)
-          (appengine :verbose verbose)
-          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(^.*)" (str mod "/$1")})
-          ;; FIXME: use cache instead?
-          ;; (builtin/target :dir #{(str "target/" mod)})
-          )))
-
-(boot/deftask make
-  "dev build, source only"
-  [v verbose bool "verbose"]
-  (let [mod (str (-> (boot/get-env) :gae :module))
-        prev (atom nil)
-        cache-dir (boot/cache-dir! :boot-gae/build)]
-    ;; (println "MODULE: " mod)
-    (comp
-     (boot/with-pre-wrap [fileset]
-       (let [changes (->> (boot/fileset-diff @prev fileset)
-                          boot/output-files
-                          (map :path))
-             fs (boot/new-fileset)]
-         (doseq [path changes]
-           (if verbose (util/info (str "changed: " path "\n")))
-           (let [in-file (boot/tmp-file (boot/tmp-get fileset path))
-                 out-file (if (str/ends-with? path "clj")
-                            (doto (io/file cache-dir classes-dir path) io/make-parents)
-                            (doto (io/file cache-dir path) io/make-parents))]
-             (io/copy in-file out-file)))
-         (reset! prev fileset)))
-     (builtin/sift :include #{#".*"} :invert true)
-     (boot/with-pre-wrap [fileset]
-      (-> fileset
-          (boot/add-asset cache-dir)
-          boot/commit!)))))
 
 (boot/deftask prod
   "make a prod build"

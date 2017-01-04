@@ -4,6 +4,10 @@ A library of boot tasks for Google App Engine development in Clojure.
 
 To experiment, see the link:greetings/README.adoc[greetings] subdir.
 
+FIXME:  a note about Std v. Flexible environments
+
+FIXME:  "modules" are now called "services" in the official docs.
+
 [IMPORTANT]
 ====
 This documentation is a little bit out of date, and, like the code, is
@@ -40,6 +44,7 @@ Table of Contents
 * <<performance,performance>>
 * <<testing,testing>>
 * <<modules,modules>>
+* <<services,appengine services>>
 * <<debugging,debugging>>
 * <<todo,todo>>
 
@@ -84,7 +89,7 @@ progress by running `$ boot -vv help` .
 At a minimum, the `build.boot` file for a GAE webapp must include a
 dependency for Clojure, for the Appengine Java SDK, and for boot-gae.
 In addition, if you want to use GAE services (e.g. the
-https://cloud.google.com/appengine/docs/java/datastore/[datastore],
+https://cloud.google.com/appengine/docs/java/datastore/[datastore]),
 you must include the appropriate API jar. For example:
 
 IMPORTANT: Note that there are two SDKs, an Appengine-Java-SDK and an
@@ -542,9 +547,13 @@ the `appengine.edn` config file of each module using the
 * the name of the war dir in the ear target output dir
 * the value of `<web-uri>` in the ear `META-INF/application.xml`
 
+[[services]]
+== appengine services
+
+
+
 [[debugging]]
 == debugging
-
 You could probably use something like
 https://github.com/cemerick/drawbridge[Drawbridge] with a Clojure
 webapp.

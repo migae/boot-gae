@@ -1,4 +1,4 @@
-= greetings-gae
+= greetings
 
 A simple https://cloud.google.com/appengine/docs/java/[Google App
 Engine] webapp, written in 100% https://clojure.org/[Clojure], built
@@ -36,18 +36,16 @@ completes, run:
 
 [source,clojure]
 ----
-$ cd ../greetings-gae
-$ ./boot.sh gae/build
+$ cd ../greetings
+$ ./boot.sh gae/dev
 $ ./boot.sh gae/run
 ----
 
 
-NOTE: Use of `boot.sh` is optional; it uses the JVM options in
+NOTE: Use of `boot.sh` is optional; you can also just run `$ boot
+gae/dev`, etc.  `boot.sh` uses the JVM options in
 `./.boot-jvm-options`.  See
 https://github.com/boot-clj/boot/wiki/JVM-Options[JVM Options].
-
-WARNING: The GAE java sdk is quite large, so don't be alarmed if
-`gae/build` takes a while to run the first time.
 
 To get a repl-like dev environment, open a second terminal and start a
 watcher:
@@ -56,6 +54,11 @@ watcher:
 ----
 $ boot gae/watch
 ----
+
+Now you can edit the source, and your changes will be included when
+you reload the webpage.  For example, go to
+`http://localhost:8080/hello/bob`.  Then edit the greeting message in
+`src/clj/greetings/hello.clj`.  Save your edit, then reload the page.
 
 If you need to change the configuration, for example to add another
 servlet, you'll have to restart the server.  Rerun `boot gae/build` to
