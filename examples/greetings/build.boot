@@ -63,16 +63,30 @@
        :description "Example code, boot, miraj, GAE"
        :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}})
 
-(deftask bldtest
+(def web-inf-dir "WEB-INF")
+(def classes-dir (str web-inf-dir "/classes"))
+
+(deftask btest
   "make a dev build - including reloader"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
   (comp (gae/install-sdk :verbose verbose)
         (gae/libs :verbose verbose)
         (gae/logging :verbose verbose)
-        (builtin/show :fileset true)
-        (builtin/sift :to-asset #{#"(.*\.clj$)"}
-                      :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
+        (gae/appstats :verbose verbose)
+        (builtin/javac) ;; :options ["-verbose"])
+        (gae/reloader :keep keep :verbose verbose)
+        (gae/filters :keep keep :verbose verbose)
+        (gae/servlets :keep keep :verbose verbose)
+        (gae/webxml :verbose verbose)
+        (gae/appengine :verbose verbose)
+        (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+        (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+        ))
+
+        ;; (builtin/show :fileset true)
+        ;; (builtin/sift :to-asset #{#"(.*\.clj$)"}
+        ;;               :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
         ;; (clj)
         ;; (appstats)
         ;; (filters :keep keep)
@@ -80,4 +94,4 @@
         ;; (reloader :keep keep)
         ;; (webxml)
         ;;(appengine)
-        ))
+        ;; ))
