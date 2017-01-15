@@ -83,15 +83,3 @@
         (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
         (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
         ))
-
-        ;; (builtin/show :fileset true)
-        ;; (builtin/sift :to-asset #{#"(.*\.clj$)"}
-        ;;               :move {#"(.*\.clj$)" "WEB-INF/classes/$1"})
-        ;; (clj)
-        ;; (appstats)
-        ;; (filters :keep keep)
-        ;; (servlets :keep keep)
-        ;; (reloader :keep keep)
-        ;; (webxml)
-        ;;(appengine)
-        ;; ))
