@@ -413,7 +413,7 @@
           )))
 
 (boot/deftask build
-  "dev build, source only"
+  "assemble, configure, and build app"
   [k keep bool "keep intermediate .clj and .edn files"
    p prod bool "production build, without reloader"
    v verbose bool "verbose"]
