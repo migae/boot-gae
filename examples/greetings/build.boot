@@ -77,7 +77,7 @@
         (gae/logging :verbose verbose)
         (gae/appstats :verbose verbose)
         (builtin/javac) ;; :options ["-verbose"])
-        (if prod identity (reloader :keep keep :verbose verbose))
+        (if prod identity (gae/reloader :keep keep :verbose verbose))
         (gae/filters :keep keep :verbose verbose)
         (gae/servlets :keep keep :verbose verbose)
         (gae/webxml :verbose verbose)
