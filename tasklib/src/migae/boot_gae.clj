@@ -19,6 +19,8 @@
 
             ;; [deraen.boot-less.version :refer [+version+]]))
 
+(def boot-version "2.7.1")
+
 (def web-xml-edn "web.xml.edn")
 (def webapp-edn "webapp.edn")
 (def gae-edn "appengine.edn")
@@ -387,7 +389,7 @@
 
 (declare filters install-sdk libs logging reloader servlets webxml)
 
-(boot/deftask assemble
+#_(boot/deftask assemble
   "make a dev build - including reloader"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
@@ -413,16 +415,18 @@
 (boot/deftask build
   "dev build, source only"
   [k keep bool "keep intermediate .clj and .edn files"
+   p prod bool "production build, without reloader"
    v verbose bool "verbose"]
   (let [keep (or keep false)
         verbose (or verbose false)]
     ;;     mod (str (-> (boot/get-env) :gae :module))]
     ;; (println "MODULE: " mod)
     (comp (install-sdk)
+          (libs :verbose verbose)
           (logging :verbose verbose)
           (appstats :verbose verbose)
           (builtin/javac)
-          (reloader :keep keep :verbose verbose)
+          (if prod identity (reloader :keep keep :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
           (webxml :verbose verbose)
@@ -743,7 +747,8 @@
       fileset)))
 
 ;;(core/deftask buber
-(defn buber
+;; FIXME: what was this for???
+#_(defn buber
   [tgt]
   (println "BUBER ")
   (let [;; tgt        (boot/tmp-dir!)
@@ -813,13 +818,15 @@
         ]
     (if (empty? cos)
       (do
+        ;;(println "NO CHECKOUTS")
           (comp
            (builtin/uber :as-jars true :exclude-scope #{"provided"})
            ;; (builtin/sift :include #{#"zip$"} :invert true)
            ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
-           (builtin/sift :include #{#".*jar$"})
+           ;; (builtin/sift :include #{#".*jar$"})
            (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
-          (boot/with-pre-wrap [fileset]
+      (boot/with-pre-wrap [fileset]
+        ;;(println "CHECKOUTS")
         (let [tmpdir     (boot/tmp-dir!)]
           (doseq [co cos]
             (let [mod (if (:default co) "default"
@@ -828,8 +835,8 @@
                   coords (:coords co)
                   pod-env (update-in (dissoc (boot/get-env) :checkouts)
                                      [:dependencies] #(identity %2)
-                                     (concat '[[boot/core "2.6.0-SNAPSHOT"]
-                                               [boot/pod "2.6.0-SNAPSHOT"]]
+                                     (concat '[[boot/core boot-version]
+                                               [boot/pod boot-version]]
                                              (vector coords)))
                   pod (future (pod/make-pod pod-env))]
               (if verbose (println "MODULE: " mod))
@@ -915,7 +922,9 @@
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
-(boot/deftask make
+;; FIXME: not sure what this was for.  Just moving clj sources to the right output dir?
+;; replaced by sifting?
+#_(boot/deftask make
   "dev build, source only"
   [v verbose bool "verbose"]
   (let [mod (str (-> (boot/get-env) :gae :module))
@@ -1302,7 +1311,7 @@
           (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
           (builtin/target :no-clean true))))
 
-(boot/deftask prod
+#_(boot/deftask prod
   "make a prod build"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
