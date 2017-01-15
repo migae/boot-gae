@@ -94,7 +94,7 @@ Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 [source,clojure]
 ----
 (boot/deftask prod
-  "make a dev build - including reloader"
+  "make a production build, excluding reloader"
   [k keep bool "keep intermediate .clj and .edn files"
    v verbose bool "verbose"]
   (let [keep (or keep false)
@@ -594,3 +594,7 @@ To fix this you need to provide a type hint so that Clojure can
 resolve the call at compile time:
 
 `(.createXMLStreamReader fac ^StringReader sr)`
+
+
+== TODO
+

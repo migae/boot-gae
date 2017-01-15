@@ -37,8 +37,7 @@ completes, run:
 [source,clojure]
 ----
 $ cd ../greetings
-$ ./boot.sh gae/dev
-$ ./boot.sh gae/run
+$ ./boot.sh gae/build target gae/run
 ----
 
 
