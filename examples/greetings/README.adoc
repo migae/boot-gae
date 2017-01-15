@@ -42,7 +42,7 @@ $ ./boot.sh gae/build target gae/run
 
 
 NOTE: Use of `boot.sh` is optional; you can also just run `$ boot
-gae/dev`, etc.  `boot.sh` uses the JVM options in
+gae/build`, etc.  `boot.sh` uses the JVM options in
 `./.boot-jvm-options`.  See
 https://github.com/boot-clj/boot/wiki/JVM-Options[JVM Options].
 
@@ -60,8 +60,12 @@ you reload the webpage.  For example, go to
 `src/clj/greetings/hello.clj`.  Save your edit, then reload the page.
 
 If you need to change the configuration, for example to add another
-servlet, you'll have to restart the server.  Rerun `boot gae/build` to
-reconfigure the webapp, then run `boot gae/run` again.
+servlet, you'll have to restart the server.  Rerun `boot gae/build
+target` to reconfigure the webapp, then run `boot gae/run` again.
+
+Remember that with boot it is not enough to run `gae/build`; you than have
+to run the `target` task to put the results of the build on disk where
+appengine expects them.
 
 == troubleshooting
 
