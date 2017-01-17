@@ -37,9 +37,17 @@ completes, run:
 [source,clojure]
 ----
 $ cd ../greetings
-$ ./boot.sh gae/build target gae/run
+$ ./boot.sh gae/build gae/target gae/run
 ----
 
+To see the transient `web.xml.edn` and `*.clj` files used to configure the app, use the `-k` switch with `build`:
+
+[source,sh]
+----
+$ ./boot.sh gae/build -k gae/target gae/run
+----
+
+Note the use of `gae/target` rather than the built-in `target` task.
 
 NOTE: Use of `boot.sh` is optional; you can also just run `$ boot
 gae/build`, etc.  `boot.sh` uses the JVM options in
@@ -47,12 +55,16 @@ gae/build`, etc.  `boot.sh` uses the JVM options in
 https://github.com/boot-clj/boot/wiki/JVM-Options[JVM Options].
 
 To get a repl-like dev environment, open a second terminal and start a
-watcher:
+monitor:
 
 [source,shell]
 ----
-$ boot gae/watch
+$ boot gae/monitor
 ----
+
+The `gae/monitor` task is a convenience wrapper that uses boot's
+`watch` task to detect changes to the source tree, then propagates
+changes to the correct target dirctory.
 
 Now you can edit the source, and your changes will be included when
 you reload the webpage.  For example, go to

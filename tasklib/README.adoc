@@ -20,8 +20,8 @@ This documentation will use the namespace alias `gae` to refer to
 * `<<reloader>>`	   generate and aot-compile reloader filter used to support reload-on-refresh
 * `<<run>>`		   run devappserver
 * `<<servlets>>`	   generate a "servlet-generator" clojure file containing gen-class directives and aot-compile it to produce servlet class files
-* `<<watch>>`		   watch input, write to output on change
-* `<<webxml>>`    generate gae `web.xml` config file
+* `<<monitor>>`		 monitor source tree and propagate changes to output dir
+* `<<webxml>>`             generate gae `web.xml` config file
 
 
 
@@ -120,7 +120,7 @@ Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 === reloader
 
 Install a servlet filter to support reload-on-refresh in conjunction
-with the `watch` task.  For use during development, in order to get
+with the `monitor` task.  For use during development, in order to get
 repl-like responsiveness.  Run `gae/reloader -k` to see the intermediate files.
 
 [[run]]
@@ -246,8 +246,12 @@ Servlet implementations will look like this:
 
 
 
-[[watch]]
-=== watch
+[[monitor]]
+=== monitor
+
+This is a convenience wrapper around boot tasks (`watch`, etc.).  It
+watches the source tree and copies changed files to the correct
+output dir.
 
 [[webxml]]
 === webxml
@@ -260,7 +264,7 @@ you run `servlets`, `filters`, `reloader`, and `appstats`.
 = replry
 
 WARNING: This section is somewhat out of date.  Now the tasks
-`gae/watch` and `gae/reloader` together give you the technique
+`gae/monitor` and `gae/reloader` together give you the technique
 described below out of the box.
 
 Then you'll need to prepare things, as described below.  Once that's
@@ -275,22 +279,24 @@ So if you want repl, you need to do two things. First, run the
 following command before you start editing:
 
 ```
-$ boot watch sift -i "clj$" target -d "build/WEB-INF/classes" -C
+$ boot gae/monitor
 ```
 
-Now when a source file changes, `sift -i "clj$"` will exclude anything
-not matching the include regex "clj$" and pass the result to `target`,
-which will move everthing into the classpath.
+Now when a source file changes, it will be copied to the corresponding
+output directory, and the `reloader` filter will reload the changed
+namespace.
 
 [WARNING]
 ====
-If you're going to be working with multiple file types you'll need to adjust the regex and/or run multiple watch pipelines.
+FIXME: obsolete
+
+If you're going to be working with multiple file types you'll need to adjust the regex and/or run multiple monitor pipelines.
 
 For example, if you want to edit .css files located at <approot> (that
-is, not in WEB-INF), you would run something like: 
+is, not in WEB-INF), you would run something like:
 
 ```
-$ boot watch sift -i "html$" target -d "build" -C
+$ boot monitor sift -i "html$" target -d "build" -C
 ```
 ====
 
@@ -597,4 +603,3 @@ resolve the call at compile time:
 
 
 == TODO
-
