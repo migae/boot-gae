@@ -1,0 +1,5 @@
+{:app-id "boot-test"
+ ;; first service listed is default service
+ :services [{:service "main"}
+            {:service "greetings"}]}
+

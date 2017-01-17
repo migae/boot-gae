@@ -1,6 +1,6 @@
 # *services* sample app
 
-Web app designed to facilitate learning the migae interface to GAE.
+Example demonstrating how to build a microservices app on GAE
 
 NOTE: In previous versions of GAE, what are now called "services" were
 called "modules".
