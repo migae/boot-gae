@@ -6,4 +6,6 @@ pom.xml.asc
 /classes/
 /target/
 /checkouts/
-.nrepl*
+*.nrepl-history
+
+obsolete/
