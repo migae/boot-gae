@@ -26,8 +26,13 @@
 (def gae-edn "appengine.edn")
 (def appstats-edn "appstats.edn")
 
+;; for microservices app:
+(def services-edn "services.edn")
+
+
+(def meta-inf-dir "META-INF")
 (def web-inf-dir "WEB-INF")
-  ;; (let [mod (-> (boot/get-env) :gae :module :name)]
+  ;; (let [mod (-> (boot/get-env) :gae :module)]
   ;;   (str (if mod (str mod "/")) "WEB-INF")))
 
 ;; http://stackoverflow.com/questions/2751033/clojure-program-reading-its-own-manifest-mf
@@ -433,10 +438,20 @@
           (appengine :verbose verbose)
           (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
           (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (builtin/pom)
+          (builtin/jar)
           ;; (builtin/sift :move {#"(^.*)" (str mod "/$1")})
           ;; FIXME: use cache instead?
           ;; (builtin/target :dir #{(str "target/" mod)})
           )))
+
+(boot/deftask target
+  "target, using module name"
+  [v verbose bool "verbose"
+   C no-clean bool "Don't clean target before writing project files"]
+  (let [mod (str (-> (boot/get-env) :gae :module))]
+    (builtin/target :dir #{(str "target/" mod)}
+                    :no-clean (or no-clean false))))
 
 (boot/deftask cache
   "control cache: retrieve, save, clean"
@@ -494,12 +509,13 @@
 
         checkout-vec (-> (boot/get-env) :checkouts)
         cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
-        tmpdir (boot/tmp-dir!)
         ]
+
+    ;; create services.edn map from :checkouts
+
     (boot/with-pre-wrap [fileset]
       (doseq [co cos]
-        (let [;; co (first cos)
-              mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
+        (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
           (let [corec (get checkouts (first (:coords co)))
                 co-dir (:dir corec)
                 jar-path (.getPath (:jar corec))
@@ -511,64 +527,59 @@
           (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
           (boot/commit!)))))
 
-                ;; (recur (rest cos)
-                ;;        (-> fs (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
-                ;;            (boot/commit!))))))))))
+(boot/deftask earxml
+  "generate xml config files for microservices app"
+  [d dir DIR str "output dir"
+   c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
+   k keep bool str "keep intermediate .clj files"
+   v verbose bool "Print trace messages."]
+;;  (println "TASK: earxml")
+  (let [edn-tmp (boot/tmp-dir!)
+        prev-pre (atom nil)
+        odir (if dir dir meta-inf-dir)]
+    ;; (println "ODIR: " odir)
+    (boot/with-pre-wrap fileset
+      (let [services-fs (->> (boot/fileset-diff @prev-pre fileset)
+                                boot/input-files
+                                (boot/by-re [(re-pattern (str services-edn "$"))]))]
+            ;; (boot/by-name [services]))]
+        (if (> (count services-fs) 1) (throw (Exception. "only one services.edn file allowed")))
+        (if (= (count services-fs) 0) (throw (Exception. "services.edn file not found")))
 
-        ;; (comp
-        ;;  (builtin/sift :add-asset #{co-dir})
-        ;;  (builtin/sift :move {#"(^.*)" (str mod "/$1")})
-        ;;  (builtin/sift :include #{(re-pattern (str "^" mod "/META-INF/.*"))} :invert true)
-        ;;  (builtin/sift :add-asset #{"assets"}))
-        ;; ))))
-
-    ;; (println "boot-env deps: " (:dependencies (boot/get-env)))
-    ;; ;; (println "pod-env deps: " (:dependencies pod-env))
-    ;; (println "jar-path:" jar-path)
-    ;; (println "out path:" out)
-    ;; (println "co-jars: " (type (first co-jars)))
-    ;; (builtin/sift :move {(re-pattern (.getPath (first co-dirs))) "foobar"})
-    ;; (builtin/sift :add-asset #{"foobar"})
-
-
-
-
-    ;; #_(comp
-    ;;  (boot/with-pre-wrap [fileset]
-    ;;    (pod/unpack-jar jar-path out)
-    ;;    (-> fileset
-    ;;        (boot/add-asset tmpdir)
-    ;;        boot/commit!))
-    ;;  (builtin/sift :include #{#"greetings.*META-INF.*$"} :invert true)
-
-    ;;  #_(boot/with-pre-wrap [fileset]
-    ;;    (pod/with-eval-in @ear-pod
-    ;;      (require '[boot.pod :as pod]
-    ;;               '[boot.core :as boot]
-    ;;               '[boot.util :as util]
-    ;;               '[boot.task.built-in :as builtin]
-    ;;               '[clojure.java.io :as io])
-    ;;      ;; (boot/with-pre-wrap [fs]
-    ;;      (let [jar-path ~(pod/resolve-dependency-jar (boot/get-env) coords)
-    ;;            out (io/file ~(.getPath tmpdir) ~target-path)
-    ;;            ]
-    ;;        (println (str "jar-path 2:" jar-path))
-    ;;        (println (str "module: " (get ~(manifest-map jar-path) "module")))
-    ;;        (println (str "out:" out))
-    ;;        (pod/unpack-jar jar-path out)))
-    ;;    (-> fileset
-    ;;        (boot/add-asset tmpdir)
-    ;;        boot/commit!))
-    ;;  #_(builtin/sift :include #{#"greetings.*META-INF.*$"} :invert true)
-    ;;  )))
-
-  ;;  (builtin/show :fileset true))
-      ;; fileset)))
-
-      ;;    #_(builtin/sift :add-asset paths)
-      ;;    ;; (apply comp pipeline)
-      ;;    #_(builtin/target)))
-      ;; fileset)))
+        (let [services-f (first services-fs)
+              services-cfg (-> (boot/tmp-file services-f) slurp read-string)
+              path     (boot/tmp-path services-f)
+              in-file  (boot/tmp-file services-f)
+              out-file (io/file edn-tmp path)]
+          (let [appengine-application-cfg (stencil/render-file
+                                           "migae/boot_gae/xml.appengine-application.mustache"
+                                           services-cfg)
+                application-cfg (stencil/render-file
+                                 "migae/boot_gae/xml.application.mustache"
+                                 services-cfg)
+                manifest-cfg (stencil/render-file
+                              "migae/boot_gae/MANIFEST.MF.mustache"
+                              services-cfg)]
+            (if verbose
+              (do (println appengine-application-cfg)
+                  (println application-cfg)
+                  (println manifest-cfg)))
+            (let [appengine-application-out-path (str odir "/appengine-application.xml")
+                  appengine-application-out-file (doto
+                                                     (io/file edn-tmp appengine-application-out-path)
+                                                   io/make-parents)
+                  application-out-path (str odir "/application.xml")
+                  application-out-file (doto (io/file edn-tmp application-out-path)
+                                         io/make-parents)
+                  manifest-out-path (str odir "/MANIFEST.MF")
+                  manifest-out-file (doto (io/file edn-tmp manifest-out-path)
+                                      io/make-parents)
+                  ]
+              (util/info "Configuring microservices app\n")
+              (spit appengine-application-out-file appengine-application-cfg)
+              (spit application-out-file application-cfg)
+              (spit manifest-out-file manifest-cfg)))))
+      (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
 
 (boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -835,8 +846,8 @@
                   coords (:coords co)
                   pod-env (update-in (dissoc (boot/get-env) :checkouts)
                                      [:dependencies] #(identity %2)
-                                     (concat '[[boot/core boot-version]
-                                               [boot/pod boot-version]]
+                                     (concat '[[boot/core "2.7.1"] ;; ~(str boot-version)]
+                                               [boot/pod "2.7.1"]] ;; ~(str boot-version)]]
                                              (vector coords)))
                   pod (future (pod/make-pod pod-env))]
               (if verbose (println "MODULE: " mod))
@@ -922,6 +933,19 @@
          (util/info "Configuring logging...\n")
          (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
 
+(boot/deftask monitor
+  "watch etc. for gae project"
+  []
+  (let [mod (str (-> (boot/get-env) :gae :module))]
+    (comp (builtin/watch)
+          (builtin/speak)
+          ;;(builtin/sift :move {#"(.*\.clj$)" (str (if mod (str mod "/")) classes-dir "/$1")})
+          (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
+          ;; (builtin/pom)
+          ;; (builtin/jar)
+          ;; NB: use gae/target, not builtin/target
+          (target :no-clean true))))
+
 ;; FIXME: not sure what this was for.  Just moving clj sources to the right output dir?
 ;; replaced by sifting?
 #_(boot/deftask make
@@ -974,6 +998,8 @@
   (let [edn-tmp (boot/tmp-dir!)
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
+
+        module (or module (-> (boot/get-env) :gae :module))
 
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
@@ -1300,16 +1326,6 @@
               (util/info "Configuring web.xml\n")
               (spit xml-out-file content)))))
       (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
-
-(boot/deftask watch
-  "watch for gae project"
-  []
-  (let [mod (str (-> (boot/get-env) :gae :module))]
-    (comp (builtin/watch)
-          (builtin/speak)
-          ;; (builtin/sift :move {#"(.*\.clj$)" (str mod "/" classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
-          (builtin/target :no-clean true))))
 
 #_(boot/deftask prod
   "make a prod build"
