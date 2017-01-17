@@ -9,8 +9,8 @@
                 #_["maven-central" "http://mvnrepository.com"]
                 "central" "http://repo1.maven.org/maven2/"}
  :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
-                   [boot/core "2.6.0-SNAPSHOT" :scope "provided"]
-                   [boot/pod "2.6.0-SNAPSHOT" :scope "provided"]
+                   [boot/core "2.7.1" :scope "provided"]
+                   [boot/pod "2.7.1" :scope "provided"]
                    [me.raynes/fs "1.4.6"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
