@@ -16,11 +16,11 @@ This documentation will use the namespace alias `gae` to refer to
 * `<<install-sdk>>`        unpack and install the SDK zipfile
 * `<<libs>>`               install dependency jars in <build-dir>/WEB-INF/lib
 * `<<logging>>`		   generate and install gae logging config files (e.g. `logging.properties`, `log4j.properties`)
+* `<<monitor>>`		 monitor source tree and propagate changes to output dir
 * `<<prod>>`		   build for production (without `reloader` task)
 * `<<reloader>>`	   generate and aot-compile reloader filter used to support reload-on-refresh
 * `<<run>>`		   run devappserver
 * `<<servlets>>`	   generate a "servlet-generator" clojure file containing gen-class directives and aot-compile it to produce servlet class files
-* `<<monitor>>`		 monitor source tree and propagate changes to output dir
 * `<<webxml>>`             generate gae `web.xml` config file
 
 
@@ -87,6 +87,14 @@ Copy all dependency jars to `WEB-INF/lib`, required by Appengine.
 
 [[logging]]
 === logging
+
+
+[[monitor]]
+=== monitor
+
+This is a convenience wrapper around boot tasks (`watch`, etc.).  It
+watches the source tree and copies changed files to the correct
+output dir.
 
 [[prod]]
 === prod
@@ -245,13 +253,6 @@ Servlet implementations will look like this:
 ----
 
 
-
-[[monitor]]
-=== monitor
-
-This is a convenience wrapper around boot tasks (`watch`, etc.).  It
-watches the source tree and copies changed files to the correct
-output dir.
 
 [[webxml]]
 === webxml
