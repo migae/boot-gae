@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<application xmlns="http://java.sun.com/xml/ns/javaee"
+	     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	     xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+				 http://java.sun.com/xml/ns/javaee/application_6.xsd"
+	     version="6">
+  <display-name>{{app-id}}</display-name>
+  {{#services}}
+  <module>
+    <web>
+      <web-uri>{{service}}</web-uri>
+      <context-root>{{service}}-ignored</context-root>
+    </web>
+  </module>
+  {{/services}}
+</application>
+
