@@ -1,4 +1,4 @@
-(def +project+ 'tmp.modules/main)
+(def +project+ 'tmp.services/default)
 (def +version+ "0.1.0-SNAPSHOT")
 
 ;; gae does not yet support java 1.8
