@@ -1,0 +1,21 @@
+= TODO
+
+* split examples into separate project
+
+* DONE: make `gae/monitor` work transparently for both standalone and services apps
+
+* DONE: make `gae/target` work transparently for both standalone and services apps
+
+* make `gae/appstats` and `gae/filters` work transparently if edn files omitted
+
+* doc: make a distinction between core tasks and convenience tasks
+
+* add convenience task `gae/configure`, composing `gae/logging gae/webxml gae/appengine`
+
+* DONE: add `gae/assemble` for building service-based apps
+
+* find a better name than `gae/earxml`
+
+* what about `gae/cache`?  obsolete?
+
+* split out `boot-servlets`
