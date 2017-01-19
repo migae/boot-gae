@@ -1,5 +1,0 @@
-{:thread-safe true
- :system-properties {:logging {:jul {:name "java.util.logging.config.file"
-                                     :value "WEB-INF/logging.properties"}}}
- :sessions true
- }

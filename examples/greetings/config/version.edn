@@ -1,5 +1,0 @@
-{:project "boot-test"
- :version "0-1-0-snapshot"
- :display-name {:name "hello app"}
- :descr {:text "description of this web app, for web.xml etc."}}
-

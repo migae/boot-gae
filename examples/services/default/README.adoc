@@ -1,2 +1,0 @@
-= boot-test main module
-

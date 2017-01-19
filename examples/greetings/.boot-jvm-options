@@ -1,1 +1,0 @@
--ea -esa -client -Xmx6g -XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xverify:none -XX:+UseConcMarkSweepGC -XX:+CMSClassUnloadingEnabled
