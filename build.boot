@@ -5,9 +5,8 @@
  :source-paths #{"src"}
  :resource-paths #{"src"}
  ;; :asset-paths #{"src"}
- :repositories {"clojars" "https://clojars.org/repo"
-                #_["maven-central" "http://mvnrepository.com"]
-                "central" "http://repo1.maven.org/maven2/"}
+ :repositories [["clojars" {:url "https://clojars.org/repo/"}]
+                ["central" {:url "http://repo1.maven.org/maven2/"}]]
  :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
                    [boot/core "2.7.1" :scope "provided"]
                    [boot/pod "2.7.1" :scope "provided"]
@@ -20,10 +19,10 @@
                    ])
 
 (task-options!
- target {:dir "build"}
  pom  {:project     +project+
        :version     +version+
        :description "Boot for GAE"
        :url         "https://github.com/migae/boot-gae"
        :scm         {:url "https://github.com/migae/boot-gae"}
-       :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}})
+       :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}}
+ push {:repo "clojars"})
