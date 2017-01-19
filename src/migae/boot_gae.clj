@@ -393,7 +393,7 @@
                            (boot/add-source edn-tmp)
                            boot/commit!))))))
 
-(declare filters install-sdk libs logging reloader servlets target webxml)
+(declare earxml filters install-sdk libs logging reloader servlets target webxml)
 
 (boot/deftask assemble
   "assemble a service-based app (ear)"
@@ -414,19 +414,23 @@
         checkout-vec (-> (boot/get-env) :checkouts)
         cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
         ]
-    (boot/with-pre-wrap [fileset]
-      (doseq [co cos]
-        (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
-          (let [corec (get checkouts (first (:coords co)))
-                co-dir (:dir corec)
-                jar-path (.getPath (:jar corec))
-                out-dir (doto (io/file tmpdir mod) io/make-parents)]
-            ;; (println "co-dir: " co-dir)
-            ;; (println "out-dir: " out-dir)
-            (fs/copy-dir co-dir out-dir))))
-      (-> fileset
-          (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
-          (boot/commit!)))))
+    (comp
+     (earxml)
+     (boot/with-pre-wrap [fileset]
+       (doseq [co cos]
+         (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
+           (let [corec (get checkouts (first (:coords co)))
+                 co-dir (:dir corec)
+                 jar-path (.getPath (:jar corec))
+                 out-dir (doto (io/file tmpdir mod) io/make-parents)]
+             ;; (println "co-dir: " co-dir)
+             ;; (println "out-dir: " out-dir)
+             (fs/copy-dir co-dir out-dir))))
+       (-> fileset
+           (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
+           (boot/commit!)))
+     (target)
+     )))
 
 (boot/deftask build
   "assemble, configure, and build app"
@@ -929,7 +933,6 @@
   ;;(let [mod (str (-> (boot/get-env) :gae :module :name))]
   (comp (builtin/watch)
         (builtin/notify :audible true)
-        ;;(builtin/sift :move {#"(.*\.clj$)" (str (if mod (str mod "/")) classes-dir "/$1")})
         (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
         (if service
           (target :no-clean true :service service :monitor true)
