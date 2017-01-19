@@ -32,7 +32,7 @@
 
 (def meta-inf-dir "META-INF")
 (def web-inf-dir "WEB-INF")
-  ;; (let [mod (-> (boot/get-env) :gae :module)]
+  ;; (let [mod (-> (boot/get-env) :gae :module :name)]
   ;;   (str (if mod (str mod "/")) "WEB-INF")))
 
 ;; http://stackoverflow.com/questions/2751033/clojure-program-reading-its-own-manifest-mf
@@ -93,7 +93,7 @@
 (defn input-resources-dir [nm] (str/join "/" [project-dir "src" nm "resources"]))
 
 (defn gae-app-dir []
-  (let [mod (str (-> (boot/get-env) :gae :module))]
+  (let [mod (str (-> (boot/get-env) :gae :module :name))]
     (str "target" (if mod (str "/" mod)))))
 
 (def sdk-root-property "appengine.sdk.root")
@@ -307,14 +307,15 @@
               app-id (name (-> (boot/get-env) :gae :app-id))
               version (str/replace (-> (boot/get-env) :gae :version) "." "-")
               version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
-              module (-> (boot/get-env) :gae :module)
+              module (-> (boot/get-env) :gae :module :name)
               ;; module (if (:module gae-forms)
               ;;          (str (:module gae-forms) "-" version)
               ;;          nil)
               gae-map (assoc gae-forms
                              :app-id app-id
                              :version version
-                             :module module)]
+                             :module {:name module})]
+          ;; (println "gae-map: " gae-map)
           (let [content (stencil/render-file
                          "migae/boot_gae/xml.appengine-web.mustache"
                          gae-map)]
@@ -392,66 +393,99 @@
                            (boot/add-source edn-tmp)
                            boot/commit!))))))
 
-(declare filters install-sdk libs logging reloader servlets webxml)
+(declare filters install-sdk libs logging reloader servlets target webxml)
 
-#_(boot/deftask assemble
-  "make a dev build - including reloader"
-  [k keep bool "keep intermediate .clj and .edn files"
-   v verbose bool "verbose"]
-  (let [keep (or keep false)
-        verbose (or verbose false)
-        mod (str (-> (boot/get-env) :gae :module))]
-    ;; (println "MODULE: " mod)
-    (comp (install-sdk)
-          (libs :verbose verbose)
-          (logging :verbose verbose)
-          (appstats :verbose verbose)
-          (builtin/javac)
-          (reloader :keep keep :verbose verbose)
-          (filters :keep keep :verbose verbose)
-          (servlets :keep keep :verbose verbose)
-          (webxml :verbose verbose)
-          (appengine :verbose verbose)
-          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (builtin/target :dir #{(str "target/" mod)})
-          )))
+(boot/deftask assemble
+  "assemble a service-based app (ear)"
+  [v verbose bool "Print trace messages."]
+  (let [tmpdir (boot/tmp-dir!)
+        dfl-scopes #{"compile" "runtime" "provided"}
+        scopes dfl-scopes
+        ;; scopes     (-> dfl-scopes
+        ;;                (set/union include-scope)
+        ;;                (set/difference exclude-scope))
+        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
+        checkouts  (->> (boot/get-checkouts)
+                        (filter (comp scope? :dep val))
+                        (into {}))
+        co-jars    (->> checkouts (map (comp :jar val)))
+        co-dirs    (->> checkouts (map (comp :dir val)))
+
+        checkout-vec (-> (boot/get-env) :checkouts)
+        cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
+        ]
+    (boot/with-pre-wrap [fileset]
+      (doseq [co cos]
+        (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
+          (let [corec (get checkouts (first (:coords co)))
+                co-dir (:dir corec)
+                jar-path (.getPath (:jar corec))
+                out-dir (doto (io/file tmpdir mod) io/make-parents)]
+            ;; (println "co-dir: " co-dir)
+            ;; (println "out-dir: " out-dir)
+            (fs/copy-dir co-dir out-dir))))
+      (-> fileset
+          (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
+          (boot/commit!)))))
 
 (boot/deftask build
   "assemble, configure, and build app"
   [k keep bool "keep intermediate .clj and .edn files"
    p prod bool "production build, without reloader"
+   s service bool "build a service"
    v verbose bool "verbose"]
   (let [keep (or keep false)
-        verbose (or verbose false)]
-    ;;     mod (str (-> (boot/get-env) :gae :module))]
+        verbose (or verbose false)
+        mod (str (-> (boot/get-env) :gae :module :name))]
     ;; (println "MODULE: " mod)
     (comp (install-sdk)
           (libs :verbose verbose)
-          (logging :verbose verbose)
           (appstats :verbose verbose)
           (builtin/javac)
           (if prod identity (reloader :keep keep :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
+          (logging :verbose verbose)
           (webxml :verbose verbose)
           (appengine :verbose verbose)
           (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
           (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (builtin/pom)
-          (builtin/jar)
+          (if service
+            (comp
+             (builtin/pom)
+             (builtin/jar)
+             (target :verbose verbose)
+             #_(builtin/sift :include #{(re-pattern (str mod ".*jar"))})
+             #_(builtin/install))
+            (target :verbose verbose))
           ;; (builtin/sift :move {#"(^.*)" (str mod "/$1")})
           ;; FIXME: use cache instead?
           ;; (builtin/target :dir #{(str "target/" mod)})
           )))
 
+#_(boot/deftask install
+  "install service jar.  run after build task"
+  [s service bool "build a service"
+   v verbose bool "verbose"]
+  (let [verbose (or verbose false)
+        e (boot/get-env)
+        mod (str (-> e :gae :module :name))]
+    #_(builtin/install )))
+
 (boot/deftask target
   "target, using module name"
-  [v verbose bool "verbose"
-   C no-clean bool "Don't clean target before writing project files"]
-  (let [mod (str (-> (boot/get-env) :gae :module))]
-    (builtin/target :dir #{(str "target/" mod)}
-                    :no-clean (or no-clean false))))
+  [C no-clean bool "Don't clean target before writing project files"
+   s service bool "service"
+   v verbose bool "verbose"]
+  (let [mod      (-> (boot/get-env) :gae :module :name)
+        app-dir  (-> (boot/get-env) :gae :module :app-dir)]
+    (if service
+      (if (not (and mod app-dir))
+        (throw (Exception. "For service targets, both :name and :app-dir must be specified in :gae map of build.boot"))))
+    (let [dir (str (if service (str app-dir "/")) "target/" mod)]
+      (println "TARGET DIR:" dir)
+      (builtin/target :dir #{dir}
+                      :no-clean (or no-clean false)))))
 
 (boot/deftask cache
   "control cache: retrieve, save, clean"
@@ -487,57 +521,16 @@
                 fileset)
               fileset)))))))
 
-;; FIXME: generate correct reloaders. do it by hand for now
-(boot/deftask ear
-  "construct ear dir"
-  [k keep bool "keep intermediate .clj files"
-   i meta-inf META-INF str "META-INF dir path"
-   v verbose bool "Print trace messages."]
-  (let [m (or meta-inf "./")
-        tmpdir (boot/tmp-dir!)
-        dfl-scopes #{"compile" "runtime" "provided"}
-        scopes dfl-scopes
-        ;; scopes     (-> dfl-scopes
-        ;;                (set/union include-scope)
-        ;;                (set/difference exclude-scope))
-        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
-        checkouts  (->> (boot/get-checkouts)
-                        (filter (comp scope? :dep val))
-                        (into {}))
-        co-jars    (->> checkouts (map (comp :jar val)))
-        co-dirs    (->> checkouts (map (comp :dir val)))
-
-        checkout-vec (-> (boot/get-env) :checkouts)
-        cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
-        ]
-
-    ;; create services.edn map from :checkouts
-
-    (boot/with-pre-wrap [fileset]
-      (doseq [co cos]
-        (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
-          (let [corec (get checkouts (first (:coords co)))
-                co-dir (:dir corec)
-                jar-path (.getPath (:jar corec))
-                out-dir (doto (io/file tmpdir mod) io/make-parents)]
-            ;; (println "co-dir: " co-dir)
-            ;; (println "out-dir: " out-dir)
-            (fs/copy-dir co-dir out-dir))))
-      (-> fileset
-          (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
-          (boot/commit!)))))
-
 (boot/deftask earxml
   "generate xml config files for microservices app"
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
    k keep bool str "keep intermediate .clj files"
    v verbose bool "Print trace messages."]
-;;  (println "TASK: earxml")
   (let [edn-tmp (boot/tmp-dir!)
         prev-pre (atom nil)
         odir (if dir dir meta-inf-dir)]
-    ;; (println "ODIR: " odir)
+    ;; FIXME create services.edn map from :checkouts
     (boot/with-pre-wrap fileset
       (let [services-fs (->> (boot/fileset-diff @prev-pre fileset)
                                 boot/input-files
@@ -619,7 +612,7 @@
   (validate-tools-api-jar)
   (println "PARAMS: " *opts*)
   (let [opts (merge {:sdk-root (:sdk-root config-map)
-                     :use-java7 true
+                     ;; :use-java7 true
                      :build-dir (gae-app-dir)} ;; (:build-dir config-map)}
                     *opts*)
         _ (println "OPTS: " opts)
@@ -935,16 +928,17 @@
 
 (boot/deftask monitor
   "watch etc. for gae project"
-  []
-  (let [mod (str (-> (boot/get-env) :gae :module))]
+  [s service bool "service"
+   v verbose bool "verbose"]
+  (let [mod (str (-> (boot/get-env) :gae :module :name))]
     (comp (builtin/watch)
-          (builtin/speak)
+          (builtin/notify :audible true)
           ;;(builtin/sift :move {#"(.*\.clj$)" (str (if mod (str mod "/")) classes-dir "/$1")})
           (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
           ;; (builtin/pom)
           ;; (builtin/jar)
           ;; NB: use gae/target, not builtin/target
-          (target :no-clean true))))
+          (target :no-clean true :service service))))
 
 ;; FIXME: not sure what this was for.  Just moving clj sources to the right output dir?
 ;; replaced by sifting?
@@ -999,7 +993,7 @@
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
 
-        module (or module (-> (boot/get-env) :gae :module))
+        module (or module (-> (boot/get-env) :gae :module :name))
 
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
@@ -1327,26 +1321,6 @@
               (spit xml-out-file content)))))
       (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
 
-#_(boot/deftask prod
-  "make a prod build"
-  [k keep bool "keep intermediate .clj and .edn files"
-   v verbose bool "verbose"]
-  (let [keep (or keep false)
-        verbose (or verbose false)
-        mod (str (-> (boot/get-env) :gae :module))]
-    (comp (install-sdk)
-          (libs :verbose verbose)
-          (logging :verbose verbose)
-          (appstats :verbose verbose)
-          (builtin/javac)
-          (filters :keep false :verbose verbose)
-          (servlets :keep false :verbose verbose)
-          (webxml :verbose verbose)
-          (appengine :verbose verbose)
-          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (builtin/target :dir #{(str "target/" mod)})
-          )))
 
 ;; (boot/deftask mods
 ;;   "modules"

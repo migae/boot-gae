@@ -2,15 +2,12 @@
 <appengine-web-app xmlns="http://appengine.google.com/ns/1.0">
   <application>{{app-id}}</application>
 
-  <module>{{module}}</module>
-
+{{#module}}  <module>{{name}}</module>
+{{/module}}
   <version>{{version}}</version>
 
-
-  {{#thread-safe}}
-  <threadsafe>true</threadsafe>
-  {{/thread-safe}}
-
+{{#thread-safe}}  <threadsafe>true</threadsafe>
+{{/thread-safe}}
   {{#resource-files}}
   <resource-files>
     {{#include}}

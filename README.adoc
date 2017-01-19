@@ -37,9 +37,11 @@ Table of Contents
 * <<logging,logging>>
 * <<performance,performance>>
 * <<testing,testing>>
+* <<deployment,deployment>>
 * <<modules,modules>>
 * <<services,appengine services>>
 * <<debugging,debugging>>
+* <<troubleshooting,troubleshooting>>
 * <<todo,todo>>
 
 
@@ -65,7 +67,7 @@ This allows the user to experiment task by task, which is the best way
 to learn how the whole thing works.  It also makes it easier to debug
 build pipelines.
 
-Task library documentation: link:tasklib/README.adoc[tasks]
+Task library documentation: link:doc/tasks.adoc[tasks]
 
 [[configuration]]
 = configuration
@@ -503,6 +505,7 @@ artifact.  However, maven artifact
 versioned.
 
 
+
 [[app-id]]
 === app id and version
 
@@ -534,32 +537,62 @@ version string.
 For example, if your project version string is `0.1.0-SNAPSHOT`, then
 your gae app version string will be `r-0-1-0`.
 
-[[modules]]
-=== modules
 
-Naming and versioning of modules is a bit mysterious.
 
-Each module will end up as an exploded war directory in the ear
+[[deployment]]
+=== deployment
+
+
+* Make sure you do a production build, `boot gae/build -p gae/target`.
+  This ensures that the `reloader` filter will be omitted.
+
+* Make sure the `<module>` element in `appengine-web.xml` is
+  correctly set.  For a standalone webapp, it should be omitted or set
+  to `<module>default</module>`.  To arrange for this, set the `:gae`
+  stanza in your `build.boot` accordingly:
+
+[source,clojure]
+----
+(set-env!
+ :gae {:app-id "boot-gae-greetings"
+       :module {:name "default"}  ;; or delete this line
+       :version +version+}
+...
+----
+
+*   For a microservices app, each
+  service should have a `<module>` element; the first service listed
+  will be the default service.
+
+* Run `gae/deployment`
+
+
+[[services]]
+=== microservices
+
+Naming and versioning of services is a bit mysterious.
+
+Each service will end up as an exploded war directory in the ear
 directory.  _The name of the war dir is determined by the `<web-uri>`
 element in the `META-INF/application.xml` file in the ear source tree_.
 
-GAE allows you to run multiple versions of each module.  Each
-module+version should have a unique name.  You set the name of each
-module in its `WEB-INF/appengine-web.xml`, in the `<module>` element.
+GAE allows you to run multiple versions of each service.  Each
+service+version should have a unique name.  You set the name of each
+service in its `WEB-INF/appengine-web.xml`, in the `<module>` element.
 Note that that `<application>` element of that file is ignored (since
-it is a module in an app rather than an app itself).  Not sure about
+it is a service in an app rather than an app itself).  Not sure about
 the `<version>` element.
 
 The name set in `<module>` will be used at runtime to construct the
-URL at which the module is accessible.  For example,
+URL at which the service is accessible.  For example,
 `<module>foo</module>` of app `myapp` will be accessible at
 `http://foo.myapp.appspot.com`.
 
 But that module name is _not_ used at build time.  The
 `META-INF/application.xml` file, which controls the structure of the
-app, does not refer to the module name set in each module's
+app, does not refer to the service name set in each service's
 `WEB-INF/appengine-web.xml` file.  Instead, the root directory of each
-module is referenced, in a `<module>` element.  For example:
+service is referenced, in a `<module>` element.  For example:
 
 [source,xml]
 ----
@@ -574,26 +607,29 @@ module is referenced, in a `<module>` element.  For example:
 WARNING: "App Engine will ignore the <context-root> elements, so HTTP
 clients need not prepend it to the URL path when addressing a module."
 
-But if `application.xml` does not reference the modules, how does the
+But if `application.xml` does not reference the services, how does the
 final build product get built?  How does the build system know what to
 put in the ear, and what to name it?
 
 Different build systems do it differently.  The (outdated) maven
 system appended the version string and ".war" to the maven
-artifact id.  The gradle system uses the module name from
+artifact id.  The gradle system uses the service name from
 `settings.gradle` to name the wardir path in `build/exploded-app`; if
 the gradle build file specifies a version, that will be appended to
-the module name.  The `<web-uri>` element in `application.xml` must
-then match the constructed module name.
+the service name.  The `<web-uri>` element in `application.xml` must
+then match the constructed service name.
 
-Here's how `boot-gae` does it.  The module name must be specified in
-the `appengine.edn` config file of each module using the
-`:module` key.  That name will be used for:
+Here's how `boot-gae` does it.  The service name must be specified in
+the `:gae` stanza of the `build.boot` file for each service using the
+`:gae :module :name` key.  That name will be used for:
 
-* the value of `<module>` in `appengine-web.xml` for each module
-* the name of the target dir in each module's project tree
+* the value of `<module>` in `appengine-web.xml` for each service
+* the name of the target dir in each service's project tree
 * the name of the war dir in the ear target output dir
 * the value of `<web-uri>` in the ear `META-INF/application.xml`
+
+*TODO* explain boot.build for the ear directory.
+
 
 [[services]]
 == appengine services
@@ -614,6 +650,20 @@ remotely debug the dev server.  For example:
 I have no idea how to use this to debug clojure code, but if you're
 dying to know how the dev server works you can use this to step
 through its startup code, at least.
+
+
+[[troubleshooting]]
+== troubleshooting
+
+==== deployment
+
+
+* If you have created the app project in your account (either via the
+  web console or the gcloud CLI), but you still get an error saying
+  the project does not exist, then the deploy tool probably thinks you
+  are logged in to a different account.  Just delete
+  `~/.appcfg_oauth2_tokens_java` and try again.
+
 
 [[todo]]
 === todo
