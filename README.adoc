@@ -32,13 +32,9 @@ Table of Contents
 [[getting-started]]
 === getting started
 
-Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
-and build the repo:
 
-[source,sh]
-----
-$ boot pom jar install
-----
+[![Clojars Project](https://img.shields.io/clojars/v/migae/boot-gae.svg)](https://clojars.org/migae/boot-gae)
+
 
 Sample code, with extensive documentation, is available at https://github.com/migae/boot-gae-examples[boot-gae-examples].
 
