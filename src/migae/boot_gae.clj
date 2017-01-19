@@ -435,14 +435,14 @@
    s service bool "build a service"
    v verbose bool "verbose"]
   (let [keep (or keep false)
-        verbose (or verbose false)
-        mod (str (-> (boot/get-env) :gae :module :name))]
+        verbose (or verbose false)]
+        ;; mod (str (-> (boot/get-env) :gae :module :name))]
     ;; (println "MODULE: " mod)
     (comp (install-sdk)
           (libs :verbose verbose)
           (appstats :verbose verbose)
           (builtin/javac)
-          (if prod identity (reloader :keep keep :verbose verbose))
+          (if prod identity (reloader :keep keep :service service :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
           (logging :verbose verbose)
@@ -453,39 +453,35 @@
           (if service
             (comp
              (builtin/pom)
-             (builtin/jar)
-             (target :verbose verbose)
-             #_(builtin/sift :include #{(re-pattern (str mod ".*jar"))})
-             #_(builtin/install))
-            (target :verbose verbose))
+             (builtin/jar))
+            identity)
+          (target :service service :verbose verbose)
+          #_(builtin/sift :include #{(re-pattern (str mod ".*jar"))})
+          #_(builtin/install)
+          #_(target :verbose verbose)
           ;; (builtin/sift :move {#"(^.*)" (str mod "/$1")})
           ;; FIXME: use cache instead?
           ;; (builtin/target :dir #{(str "target/" mod)})
           )))
 
-#_(boot/deftask install
-  "install service jar.  run after build task"
-  [s service bool "build a service"
-   v verbose bool "verbose"]
-  (let [verbose (or verbose false)
-        e (boot/get-env)
-        mod (str (-> e :gae :module :name))]
-    #_(builtin/install )))
-
 (boot/deftask target
   "target, using module name"
   [C no-clean bool "Don't clean target before writing project files"
-   s service bool "service"
+   m monitor bool "monitoring - target service assembly"
+   s service bool "building as service"
    v verbose bool "verbose"]
   (let [mod      (-> (boot/get-env) :gae :module :name)
-        app-dir  (-> (boot/get-env) :gae :module :app-dir)]
+        app-dir  (-> (boot/get-env) :gae :module :app-dir)
+        dir      (if monitor
+                   (str app-dir "/target/" mod)
+                   (if service (str "target/" mod)
+                       "target"))]
     (if service
       (if (not (and mod app-dir))
         (throw (Exception. "For service targets, both :name and :app-dir must be specified in :gae map of build.boot"))))
-    (let [dir (str (if service (str app-dir "/")) "target/" mod)]
-      (println "TARGET DIR:" dir)
-      (builtin/target :dir #{dir}
-                      :no-clean (or no-clean false)))))
+    (println "TARGET DIR: " dir)
+    (builtin/target :dir #{dir}
+                    :no-clean (or no-clean false))))
 
 (boot/deftask cache
   "control cache: retrieve, save, clean"
@@ -930,15 +926,14 @@
   "watch etc. for gae project"
   [s service bool "service"
    v verbose bool "verbose"]
-  (let [mod (str (-> (boot/get-env) :gae :module :name))]
-    (comp (builtin/watch)
-          (builtin/notify :audible true)
-          ;;(builtin/sift :move {#"(.*\.clj$)" (str (if mod (str mod "/")) classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
-          ;; (builtin/pom)
-          ;; (builtin/jar)
-          ;; NB: use gae/target, not builtin/target
-          (target :no-clean true :service service))))
+  ;;(let [mod (str (-> (boot/get-env) :gae :module :name))]
+  (comp (builtin/watch)
+        (builtin/notify :audible true)
+        ;;(builtin/sift :move {#"(.*\.clj$)" (str (if mod (str mod "/")) classes-dir "/$1")})
+        (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
+        (if service
+          (target :no-clean true :service service :monitor true)
+          (target :no-clean true :service service :monitor false))))
 
 ;; FIXME: not sure what this was for.  Just moving clj sources to the right output dir?
 ;; replaced by sifting?
@@ -987,13 +982,16 @@
    m module MODULE str "module pfx"
    n gen-reloader-ns NS sym "ns for gen-reloader"
    r reloader-impl-ns NS sym "ns for reloader"
+   s service bool "build as service"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
   (let [edn-tmp (boot/tmp-dir!)
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
 
-        module (or module (-> (boot/get-env) :gae :module :name))
+        module (if service
+                 (or module (-> (boot/get-env) :gae :module :name))
+                 nil)
 
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
@@ -1111,6 +1109,7 @@
 
    _ modules MODULES edn "modules map"
 
+   s service bool "service"
    v verbose bool "verbose"]
 
   (boot/with-pre-wrap [fileset]
@@ -1126,6 +1125,11 @@
           args (->args *opts*)
           ;; _ (println "ARGS: " args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
+
+          target-dir (if service (str (-> (boot/get-env) :gae :module :app-dir)
+                                      "/target/"
+                                      (-> (boot/get-env) :gae :module :name))
+                         "target")
 
           checkout-vec (-> (boot/get-env) :checkouts)
           cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
@@ -1159,7 +1163,7 @@
                         (if (not java-agent) ["--no_java_agent"])
                         (if http-port [(str "--port=" http-port)])
                         (if http-address [(str "--address=" http-address)])
-                        [(gae-app-dir)])
+                        [target-dir])
           jargs (into-array String jargs)]
 
       (if verbose
