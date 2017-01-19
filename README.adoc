@@ -1,25 +1,8 @@
 = boot-gae
 
-A library of boot tasks for Google App Engine development in Clojure.
-
-[IMPORTANT]
-====
-This documentation is a little bit out of date, and, like the code, is
-unpolished and partially incomplete.  In particular the reader will
-probably need to have some idea of how boot works.
-====
-
-NOTE: not yet pushed to clojars.  If you want to give it a try,
-you must fork/clone it and run `$ boot pom jar install` to put it in
-your local repo.
-
-NOTE: you do not need a GAE account to experiment!  The GAE SDK
-contains everything you need to run webapps on the local devserver;
-you only need a GAE account if you want to deploy to the production
-servers.
-
-
-WARNING:  Appengine does not support Java 1.8.  Use 1.7.
+A library of boot tasks that makes development of Clojure applications
+on Google App Engine ridiculously easy.  It replaces the maven/gradle
+build systems provided by Google.
 
 Table of Contents
 
@@ -39,7 +22,7 @@ Table of Contents
 * <<testing,testing>>
 * <<deployment,deployment>>
 * <<modules,modules>>
-* <<services,appengine services>>
+* <<services,microservices>>
 * <<debugging,debugging>>
 * <<troubleshooting,troubleshooting>>
 * <<todo,todo>>
@@ -59,6 +42,16 @@ $ boot pom jar install
 
 Sample code, with extensive documentation, is available at https://github.com/migae/boot-gae-examples[boot-gae-examples].
 
+NOTE: you do not need a GAE account to experiment!  The GAE SDK
+contains everything you need to run webapps on the local devserver;
+you only need a GAE account if you want to deploy to the production
+servers.
+
+
+WARNING:  The Appengine Standard Environment does not support Java 1.8.  Use 1.7.
+
+
+
 
 [[tasks]]
 == tasks
@@ -72,17 +65,47 @@ build pipelines.
 Task library documentation: link:doc/tasks.adoc[tasks]
 
 [[configuration]]
-= configuration
+= how it works
+
+You configure a boot-gae application by writing a `build.boot` file
+and some `edn` files.  For example, you specify servlets in
+`servlets.edn`, which looks like this:
+
+[source,clojure]
+----
+{:servlets [{:ns greetings.hello
+             :name "hello-servlet"
+             :display {:name "Awesome Hello Servlet"}
+             :desc {:text "blah blah"}
+             :urls ["/hello/*" "/foo/*"]
+             :params [{:name "greeting" :val "Hello"}]
+             :load-on-startup {:order 3}}
+  ...]}
+----
+
+boot-gae tasks will use these files to automate just about everything:
+
+* xml configuration files (web.xml and appengine-web.xml
+* servlet and filter stub class files
+* a "reloader" filter that supports quasi-REPL responsiveness
+
+NOTE: Currently only the
+https://cloud.google.com/appengine/docs/about-the-standard-environment[Standard
+Environment] is supported.  The
+https://cloud.google.com/appengine/docs/flexible/[Flexible
+Environment] is not supported.
+
+GAE applications can be built as stand-alone, servlet-based apps, or
+as a service-based app composed of multiple services.  `boot-gae`
+supports both styles.  See the documentation of
+https://github.com/migae/boot-gae-examples[boot-gae-examples] for
+details.
+
+
+== configuration
 
 [[dependencies]]
 ==== dependencies
-
-WARNING: The GAE java SDK is in the vicinity of 200 MB as of version
-1.9.37, so the first time you run `boot` with that as a dependency it
-may take a _long_ time (like 5-10 minutes or more depending on your
-network connection etc.)  Currently `boot` does not have a download
-progress indicator, so it may appear to hang.  You can monitor
-progress by running `$ boot -vv help` .
 
 At a minimum, the `build.boot` file for a GAE webapp must include a
 dependency for Clojure, for the Appengine Java SDK, and for boot-gae.
@@ -98,6 +121,14 @@ production app code will not use it, so it does not get uploaded on
 deploy.  The API SDK, by contrast, contains the libraries you need to
 use GAE services like memcache and datastore.  If your app does not
 use any services (e.g. it just serves static pages) you don't need it.
+
+WARNING: The GAE java SDK is in the vicinity of 200 MB as of version
+1.9.37, so the first time you run `boot` with that as a dependency it
+may take a _long_ time (like 5-10 minutes or more depending on your
+network connection etc.)  Currently `boot` does not have a download
+progress indicator, so it may appear to hang.  You can monitor
+progress by running `$ boot -vv help` .
+
 
 [source,clojure]
 .build.boot
@@ -570,7 +601,9 @@ your gae app version string will be `r-0-1-0`.
 
 
 [[services]]
-=== microservices
+= microservices
+
+See https://cloud.google.com/appengine/docs/java/an-overview-of-app-engine[Services: The building blocks of App Engine].
 
 Naming and versioning of services is a bit mysterious.
 
