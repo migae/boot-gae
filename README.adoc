@@ -50,12 +50,14 @@ Table of Contents
 === getting started
 
 Currently, `boot-gae` is not on clojars.  You'll have to fork/clone
-the repo.  It contains `tasklib`, the task library itself, and two
-sample webapps:
+and build the repo:
 
-* link:examples/greetings[greetings] demonstrates multiple servlets and filters. uses compojure.
-* link:examples/services[services] demonstrates implementation of https://cloud.google.com/appengine/docs/java/modules/[GAE Services] (formerly "Modules").
+[source,sh]
+----
+$ boot pom jar install
+----
 
+Sample code, with extensive documentation, is available at https://github.com/migae/boot-gae-examples[boot-gae-examples].
 
 
 [[tasks]]
