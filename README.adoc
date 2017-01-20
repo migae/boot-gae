@@ -1,8 +1,10 @@
 = boot-gae
 
 A library of boot tasks that makes development of Clojure applications
-on Google App Engine ridiculously easy.  It replaces the maven/gradle
-build systems provided by Google.
+on Google App Engine ridiculously easy.  Supports interactive
+programming - edit your Clojure source and see the result immediately,
+by refreshing your webpage, not restarting your app. Replaces and
+improves on the maven/gradle build systems provided by Google.
 
 Table of Contents
 
