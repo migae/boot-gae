@@ -445,7 +445,7 @@
     (comp (install-sdk)
           (libs :verbose verbose)
           (appstats :verbose verbose)
-          (builtin/javac)
+          (builtin/javac :options ["-source" "1.7", "-target" "1.7"])
           (if prod identity (reloader :keep keep :service service :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
@@ -578,6 +578,7 @@
   "Installs a new version of the application onto the server, as the default version for end users."
   ;; options from AppCfg.java, see also appcfg.sh --help
   [s server SERVER str "--server"
+   _ service SERVICE str "deploy a service component"
    e email EMAIL str   "The username to use. Will prompt if omitted."
    H host  HOST  str   "Overrides the Host header sent with all RPCs."
    p proxy PROXYHOST str "'PROXYHOST[:PORT]'.  Proxies requests through the given proxy server."
@@ -610,10 +611,14 @@
    v verbose bool          "Print invocation args"]
   (if verbose (println "TASK: boot-gae/deploy"))
   (validate-tools-api-jar)
-  (println "PARAMS: " *opts*)
-  (let [opts (merge {:sdk-root (:sdk-root config-map)
+  ;; (println "PARAMS: " *opts*)
+  (let [mod      (-> (boot/get-env) :gae :module :name)
+        app-dir  (-> (boot/get-env) :gae :app :dir)
+        ;; dir      (if service (str "target/" mod) "target")
+        opts (merge {:sdk-root (:sdk-root config-map)
                      ;; :use-java7 true
-                     :build-dir (gae-app-dir)} ;; (:build-dir config-map)}
+                     :build-dir (str "target/" (if service mod))}
+                                  ;; build-dir build-dir (gae-app-dir))} ;; (:build-dir config-map)}
                     *opts*)
         _ (println "OPTS: " opts)
         params (into [] (for [[k v] (remove (comp nil? second)
