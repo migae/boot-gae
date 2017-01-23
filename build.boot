@@ -1,5 +1,5 @@
 (def +project+ 'migae/boot-gae)
-(def +version+ "0.1.1-SNAPSHOT")
+(def +version+ "0.2.0-SNAPSHOT")
 
 (set-env!
  :source-paths #{"src"}
