@@ -306,7 +306,7 @@
                                  {}))
               app-id (name (-> (boot/get-env) :gae :app-id))
               version (str/replace (-> (boot/get-env) :gae :version) "." "-")
-              version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
+              ;; version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
               module (-> (boot/get-env) :gae :module :name)
               ;; module (if (:module gae-forms)
               ;;          (str (:module gae-forms) "-" version)
