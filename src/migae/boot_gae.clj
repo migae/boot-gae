@@ -278,9 +278,13 @@
    k keep bool str "keep intermediate .clj files"
    m module MODULE str "module dirpath"
    v verbose bool "Print trace messages."]
+  ;; boolean hasUppercase = !password.equals(password.toLowerCase());
   (let [tmp-dir (boot/tmp-dir!)
         prev-pre (atom nil)
-        dir (if dir dir web-inf-dir)]
+        dir (if dir dir web-inf-dir)
+        version (str/replace (-> (boot/get-env) :gae :module :version) "." "-")]
+    (if (not= version  (.toLowerCase version))
+      (throw (Exception. (str "Upper-case not allowed in GAE version string: " version))))
     (boot/with-pre-wrap fileset
       (let [webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                   boot/input-files
@@ -304,9 +308,9 @@
                                    {}
                                    {:module (str (-> webapp-edn-c :module :name))})
                                  {}))
-              app-id (name (-> (boot/get-env) :gae :app-id))
-              version (str/replace (-> (boot/get-env) :gae :version) "." "-")
-              version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
+              app-id (name (-> (boot/get-env) :gae :app :id))
+              ;; version (str/replace (-> (boot/get-env) :gae :module :version) "." "-")
+              ;; version (str "r-" (subs version 0 (.lastIndexOf version "-SNAPSHOT")))
               module (-> (boot/get-env) :gae :module :name)
               ;; module (if (:module gae-forms)
               ;;          (str (:module gae-forms) "-" version)
@@ -445,7 +449,7 @@
     (comp (install-sdk)
           (libs :verbose verbose)
           (appstats :verbose verbose)
-          (builtin/javac)
+          (builtin/javac :options ["-target" "1.7"])
           (if prod identity (reloader :keep keep :service service :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
@@ -475,14 +479,14 @@
    s service bool "building as service"
    v verbose bool "verbose"]
   (let [mod      (-> (boot/get-env) :gae :module :name)
-        app-dir  (-> (boot/get-env) :gae :module :app-dir)
+        app-dir  (-> (boot/get-env) :gae :app :dir)
         dir      (if monitor
                    (str app-dir "/target/" mod)
                    (if service (str "target/" mod)
                        "target"))]
     (if service
       (if (not (and mod app-dir))
-        (throw (Exception. "For service targets, both :name and :app-dir must be specified in :gae map of build.boot"))))
+        (throw (Exception. "For service targets, both :name and :app :dir must be specified in :gae map of build.boot"))))
     (println "TARGET DIR: " dir)
     (builtin/target :dir #{dir}
                     :no-clean (or no-clean false))))
@@ -611,9 +615,12 @@
   (if verbose (println "TASK: boot-gae/deploy"))
   (validate-tools-api-jar)
   (println "PARAMS: " *opts*)
-  (let [opts (merge {:sdk-root (:sdk-root config-map)
+  (let [mod      (-> (boot/get-env) :gae :module :name)
+        app-dir  (-> (boot/get-env) :gae :app :dir)
+        ;; dir      (if service (str "target/" mod) "target")
+        opts (merge {:sdk-root (:sdk-root config-map)
                      ;; :use-java7 true
-                     :build-dir (gae-app-dir)} ;; (:build-dir config-map)}
+                     :build-dir (if build-dir build-dir (gae-app-dir))} ;; (:build-dir config-map)}
                     *opts*)
         _ (println "OPTS: " opts)
         params (into [] (for [[k v] (remove (comp nil? second)
@@ -1129,7 +1136,7 @@
           ;; _ (println "ARGS: " args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          target-dir (if service (str (-> (boot/get-env) :gae :module :app-dir)
+          target-dir (if service (str (-> (boot/get-env) :gae :app :dir)
                                       "/target/"
                                       (-> (boot/get-env) :gae :module :name))
                          "target")
