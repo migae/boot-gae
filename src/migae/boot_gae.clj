@@ -367,11 +367,11 @@
                                  1 ;; this is a boot.tmpdir.TmpFile
                                  (first boot-config-edn-files)
                                  (throw (Exception. "only one _boot_config.edn file allowed")))
-             _ (println "boot-config-edn-f: " boot-config-edn-f)
+             ;; _ (println "boot-config-edn-f: " boot-config-edn-f)
              boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
                                    (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
                                    {})]
-         (println "boot-config-edn-map: " boot-config-edn-map)
+         ;; (println "boot-config-edn-map: " boot-config-edn-map)
          (if (:appstats boot-config-edn-map)
            fileset
            (do
@@ -387,7 +387,7 @@
                  (let [m (-> boot-config-edn-map
                              (assoc-in [:appstats] (:appstats appstats-config)))
                        boot-config-edn-s (with-out-str (pp/pprint m))
-                       _ (println "boot-config-edn-s: " boot-config-edn-s)
+                       ;; _ (println "boot-config-edn-s: " boot-config-edn-s)
                        boot-config-edn-out-file (io/file workspace
                                                          (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
                                                            (boot/tmp-path boot-config-edn-f)
