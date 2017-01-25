@@ -5,7 +5,8 @@
 {{#servlets}}
 (gen-class :name {{ns}}
            :extends javax.servlet.http.HttpServlet
+	   :exposes-methods {init superInit
+                             destroy superDestroy}
            :impl-ns {{ns}})
 
 {{/servlets}}
-
