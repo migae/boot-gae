@@ -17,13 +17,11 @@
            [java.io File]
            [java.net URL URLClassLoader]))
 
-            ;; [deraen.boot-less.version :refer [+version+]]))
-
 (def boot-version "2.7.1")
 
-(def web-xml-edn "web.xml.edn")
+(def boot-config-edn "_boot_config.edn")
 (def webapp-edn "webapp.edn")
-(def gae-edn "appengine.edn")
+(def appengine-edn "appengine.edn")
 (def appstats-edn "appstats.edn")
 
 ;; for microservices app:
@@ -293,20 +291,20 @@
                            0 nil
                            1 (first webapp-edn-files)
                            (throw (Exception. "only one webapp.edn file allowed")))
-            webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
-            gae-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+            webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+            appengine-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
                             boot/input-files
-                            (boot/by-name [gae-edn]))]
-        (if (> (count gae-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
-        (if (= (count gae-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
+                            (boot/by-name [appengine-edn]))]
+        (if (> (count appengine-edn-fs) 1) (throw (Exception. "only one _boot_config.edn file allowed")))
+        (if (= (count appengine-edn-fs) 0) (throw (Exception. "_boot_config.edn file not found")))
 
-        (let [gae-edn-f (first gae-edn-fs)
-              gae-forms (-> (boot/tmp-file gae-edn-f) slurp read-string)
+        (let [appengine-edn-f (first appengine-edn-fs)
+              gae-forms (-> (boot/tmp-file appengine-edn-f) slurp read-string)
               gae-forms (merge gae-forms
-                               (if (-> webapp-edn-c :module)
-                                 (if (-> webapp-edn-c :module :default)
+                               (if (-> webapp-edn-map :module)
+                                 (if (-> webapp-edn-map :module :default)
                                    {}
-                                   {:module (str (-> webapp-edn-c :module :name))})
+                                   {:module (str (-> webapp-edn-map :module :name))})
                                  {}))
               app-id (name (-> (boot/get-env) :gae :app :id))
               version (str/replace (-> (boot/get-env) :gae :module :version) "." "-")
@@ -320,7 +318,7 @@
                              :module {:name module})]
           ;; (println "gae-map: " gae-map)
           (let [content (stencil/render-file
-                         "migae/boot_gae/xml.appengine-web.mustache"
+                         "migae/templates/xml.appengine-web.mustache"
                          gae-map)]
             (if verbose (println content))
             (util/info "Configuring appengine-web.xml\n")
@@ -353,48 +351,53 @@
    ;; r reloader-impl-ns NS sym "ns for reloader"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  (let [edn-tmp (boot/tmp-dir!)
+  (let [workspace (boot/tmp-dir!)
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
-
-        ;; gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
-        ;; gen-reloader-path (str gen-reloader-ns ".clj")
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-files (->> (boot/user-files fileset)
-                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
-                    ;; (boot/by-name [web-xml-edn]))
-             web-xml-edn-f (condp = (count web-xml-edn-files)
-                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
-                                   nil)
-                             1 (first web-xml-edn-files)
-                             (throw (Exception. "only one web.xml.edn file allowed")))
-             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
-         ;; (println "web-xml-edn-c: " web-xml-edn-c)
-           (if (:appstats web-xml-edn-c)
-             fileset
-             (do
-               ;; (add-appstats! reloader-impl-ns urls in-file out-file)
-               (let [appstats-fs (->> (boot/input-files fileset)
-                                      (boot/by-name [appstats-edn]))]
-                 (if (> (count appstats-fs) 1)
-                   (throw (Exception. (str "only one " appstats-edn " file allowed"))))
-                 (if (= (count appstats-fs) 0)
-                   (throw (Exception. (str appstats-edn " file not found"))))
-                 (let [appstats-edn-f (first appstats-fs)
-                       appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
-                   (util/info (str "Elaborating " web-xml-edn " with :appstats stanza\n"))
-                   (let [m (-> web-xml-edn-c
-                               (assoc-in [:appstats] (:appstats appstats-config)))
-                         web-xml-edn-s (with-out-str (pp/pprint m))
-                         web-xml-edn-out-file (io/file edn-tmp (boot/tmp-path web-xml-edn-f))]
-                     (io/make-parents web-xml-edn-out-file)
-                     (spit web-xml-edn-out-file web-xml-edn-s)))))))
-               (reset! prev-pre
-                       (-> fileset
-                           (boot/add-source edn-tmp)
-                           boot/commit!))))))
+       (let [boot-config-edn-files (->> (boot/user-files fileset)
+                                        (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+             ;; (boot/by-name [boot-config-edn]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                                 0 (do (util/info (str "Creating " boot-config-edn "\n"))
+                                       ;; this creates a java.io.File
+                                       (io/file boot-config-edn))
+                                 1 ;; this is a boot.tmpdir.TmpFile
+                                 (first boot-config-edn-files)
+                                 (throw (Exception. "only one _boot_config.edn file allowed")))
+             _ (println "boot-config-edn-f: " boot-config-edn-f)
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})]
+         (println "boot-config-edn-map: " boot-config-edn-map)
+         (if (:appstats boot-config-edn-map)
+           fileset
+           (do
+             (let [appstats-fs (->> (boot/input-files fileset)
+                                    (boot/by-name [appstats-edn]))]
+               (if (= (count appstats-fs) 0)
+                 (throw (Exception. (str appstats-edn " file not found"))))
+               (if (> (count appstats-fs) 1)
+                 (throw (Exception. (str "only one " appstats-edn " file allowed"))))
+               (let [appstats-edn-f (first appstats-fs)
+                     appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
+                 (util/info (str "Elaborating " boot-config-edn " with :appstats stanza\n"))
+                 (let [m (-> boot-config-edn-map
+                             (assoc-in [:appstats] (:appstats appstats-config)))
+                       boot-config-edn-s (with-out-str (pp/pprint m))
+                       _ (println "boot-config-edn-s: " boot-config-edn-s)
+                       boot-config-edn-out-file (io/file workspace
+                                                         (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                                           (boot/tmp-path boot-config-edn-f)
+                                                           boot-config-edn-f))]
+                   (io/make-parents boot-config-edn-out-file)
+                   (spit boot-config-edn-out-file boot-config-edn-s)))))))
+       (reset! prev-pre
+               (-> fileset
+                   (boot/add-source workspace)
+                   boot/commit!))))))
 
 (declare earxml filters install-sdk libs logging reloader servlets target webxml)
 
@@ -448,7 +451,7 @@
     (comp (install-sdk)
           (libs :verbose verbose)
           (appstats :verbose verbose)
-          (builtin/javac :options ["-source" "1.7", "-target" "1.7"])
+          ;; (builtin/javac :options ["-source" "1.7", "-target" "1.7"])
           (if prod identity (reloader :keep keep :service service :verbose verbose))
           (filters :keep keep :verbose verbose)
           (servlets :keep keep :verbose verbose)
@@ -548,13 +551,13 @@
               in-file  (boot/tmp-file services-f)
               out-file (io/file edn-tmp path)]
           (let [appengine-application-cfg (stencil/render-file
-                                           "migae/boot_gae/xml.appengine-application.mustache"
+                                           "migae/templates/xml.appengine-application.mustache"
                                            services-cfg)
                 application-cfg (stencil/render-file
-                                 "migae/boot_gae/xml.application.mustache"
+                                 "migae/templates/xml.application.mustache"
                                  services-cfg)
                 manifest-cfg (stencil/render-file
-                              "migae/boot_gae/MANIFEST.MF.mustache"
+                              "migae/templates/MANIFEST.MF.mustache"
                               services-cfg)]
             (if verbose
               (do (println appengine-application-cfg)
@@ -648,7 +651,7 @@
     (. method invoke nil invoke-args)))
 
 (boot/deftask filters
-  "generate filters; update web.xml.edn with filter config data"
+  "generate filters; update _boot_config.edn with filter config data"
 
   [k keep bool "keep intermediate .clj files"
    n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
@@ -665,18 +668,18 @@
         gen-filters-path (str gen-filters-ns ".clj")]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                     boot/input-files
-                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))]
-                    ;; (boot/by-name [web-xml-edn]))]
-         (if (> (count web-xml-edn-files) 1)
-           (throw (Exception. "only one web.xml.edn file allowed")))
-         (if (= (count web-xml-edn-files) 0)
-           (throw (Exception. "cannot find web.xml.edn")))
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))]
+                    ;; (boot/by-name [boot-config-edn]))]
+         (if (> (count boot-config-edn-files) 1)
+           (throw (Exception. "only one _boot_config.edn file allowed")))
+         (if (= (count boot-config-edn-files) 0)
+           (throw (Exception. "cannot find _boot_config.edn")))
 
-         (let [web-xml-edn-f (first web-xml-edn-files)
-               web-xml-edn-c (-> (boot/tmp-file web-xml-edn-f) slurp read-string)]
-           (if (:filters web-xml-edn-c)
+         (let [boot-config-edn-f (first boot-config-edn-files)
+               boot-config-edn-map (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
+           (if (:filters boot-config-edn-map)
              fileset
              (do
                ;; step 0: read the edn files
@@ -688,18 +691,18 @@
                    (throw (Exception. "cannot find filters.edn")))
                  (let [edn-filters-f (first filters-edn-files)
                        filter-configs (-> (boot/tmp-file edn-filters-f) slurp read-string)
-                       smap (-> web-xml-edn-c (assoc-in [:filters]
+                       smap (-> boot-config-edn-map (assoc-in [:filters]
                                                         (:filters filter-configs)))
-                       web-xml-edn-s (with-out-str (pp/pprint smap))]
-                   ;; step 1:  inject filter config stanza to web.xml.edn
-                   (let [path     (boot/tmp-path web-xml-edn-f)
-                         web-xml-edn-in-file  (boot/tmp-file web-xml-edn-f)
-                         web-xml-edn-out-file (io/file edn-tmp-dir path)]
-                     (io/make-parents web-xml-edn-out-file)
-                     (spit web-xml-edn-out-file web-xml-edn-s))
+                       boot-config-edn-s (with-out-str (pp/pprint smap))]
+                   ;; step 1:  inject filter config stanza to _boot_config.edn
+                   (let [path     (boot/tmp-path boot-config-edn-f)
+                         boot-config-edn-in-file  (boot/tmp-file boot-config-edn-f)
+                         boot-config-edn-out-file (io/file edn-tmp-dir path)]
+                     (io/make-parents boot-config-edn-out-file)
+                     (spit boot-config-edn-out-file boot-config-edn-s))
 
                    ;; step 2: gen filters
-                   (let [gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
+                   (let [gen-filters-content (stencil/render-file "migae/templates/gen-filters.mustache"
                                                                    (assoc filter-configs
                                                                           :gen-filters-ns
                                                                           gen-filters-ns))
@@ -721,7 +724,7 @@
                      :invert true))
      (if keep
        (comp
-        (builtin/sift :to-resource #{(re-pattern web-xml-edn)})
+        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
         (builtin/sift :to-asset #{(re-pattern gen-filters-path)}))
        identity)
      )))
@@ -909,8 +912,8 @@
   ;; (print-task "logging" *opts*)
   (let [content (stencil/render-file
                  (if (= log :log4j)
-                   "migae/boot_gae/log4j.properties.mustache"
-                   "migae/boot_gae/logging.properties.mustache")
+                   "migae/templates/log4j.properties.mustache"
+                   "migae/templates/logging.properties.mustache")
                    config-map)
         odir (if odir odir
                  (condp = log
@@ -1018,44 +1021,46 @@
                             0 nil
                             1 (first webapp-edn-files)
                             (throw (Exception. "only one webapp.edn file allowed")))
-             webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
-             web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+             webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+             boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                     boot/input-files
-                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
-                                    ;; (boot/by-name [web-xml-edn]))
-             web-xml-edn-f (condp = (count web-xml-edn-files)
-                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+                                    ;; (boot/by-name [boot-config-edn]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                             0 (do (util/info (str "Creating " boot-config-edn "\n"))
                                    nil)
-                             1 (first web-xml-edn-files)
+                             1 (first boot-config-edn-files)
                              (throw (Exception.
-                                     (str "only one web.xml.edn file allowed, found " (count web-xml-edn-files)))))
-             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})
-             web-xml-edn-c (merge web-xml-edn-c webapp-edn-c)]
-         ;; (println "web-xml-edn-c: " web-xml-edn-c)
+                                     (str "only one _boot_config.edn file allowed, found " (count boot-config-edn-files)))))
+             boot-config-edn-map (if boot-config-edn-f
+                                 (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                 {})
+             boot-config-edn-map (merge boot-config-edn-map webapp-edn-map)]
+         ;; (println "boot-config-edn-map: " boot-config-edn-map)
 
-         (if (:reloader web-xml-edn-c)
+         (if (:reloader boot-config-edn-map)
            fileset
            (do
-             ;; step 1: inject :reloader stanza into web.xml.edn
+             ;; step 1: inject :reloader stanza into _boot_config.edn
              ;; (add-reloader! reloader-impl-ns urls in-file out-file)
-             (let [urls (flatten (concat (map #(% :urls) (:servlets web-xml-edn-c))))
-                   m (-> web-xml-edn-c (assoc-in [:reloader]
+             (let [urls (flatten (concat (map #(% :urls) (:servlets boot-config-edn-map))))
+                   m (-> boot-config-edn-map (assoc-in [:reloader]
                                                  {:ns reloader-impl-ns
                                                   :name "reloader"
                                                   :display {:name "Clojure reload filter"}
                                                   :urls (if (empty? urls) [{:url "/*"}]
                                                             (vec urls))
                                                   :desc {:text "Clojure reload filter"}}))
-                   web-xml-edn-s (with-out-str (pp/pprint m))
-                   web-xml-edn-out-file (io/file edn-tmp (boot/tmp-path web-xml-edn-f))]
-               (io/make-parents web-xml-edn-out-file)
-               (spit web-xml-edn-out-file web-xml-edn-s))
+                   boot-config-edn-s (with-out-str (pp/pprint m))
+                   boot-config-edn-out-file (io/file edn-tmp (boot/tmp-path boot-config-edn-f))]
+               (io/make-parents boot-config-edn-out-file)
+               (spit boot-config-edn-out-file boot-config-edn-s))
 
-             (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
+             (let [reloader-impl-content (stencil/render-file "migae/templates/reloader-impl.mustache"
                                                               {:reloader-ns reloader-impl-ns
                                                                :module (or module "./")})
 
-                   gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
+                   gen-reloader-content (stencil/render-file "migae/templates/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
                                                               :reloader-impl-ns reloader-impl-ns})
                    _ (if verbose (println "impl: " reloader-impl-path))
@@ -1083,7 +1088,7 @@
                        :invert true))
      (if keep (builtin/sift :to-resource #{(re-pattern gen-reloader-path)})
          identity)
-     (if keep (builtin/sift :to-resource #{(re-pattern ".*web.xml.edn$")})
+     (if keep (builtin/sift :to-resource #{(re-pattern ".*_boot_config.edn$")})
          identity)
      )))
 
@@ -1131,7 +1136,7 @@
                          0 nil
                          1 (first webapp-edn-files)
                          (throw (Exception. "only one webapp.edn file allowed")))
-          webapp-edn-c (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+          webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
           ;; (println "*OPTS*: " *opts*)
           args (->args *opts*)
           ;; _ (println "ARGS: " args)
@@ -1207,7 +1212,7 @@
                            :ns ns})))))})
 
 (boot/deftask servlets
-  "generate servlets; update web.xml.edn with servlet config data"
+  "generate servlets; update _boot_config.edn with servlet config data"
 
   ;; both subtasks require reading of servlets.edn
   ;; read from resources if avail, otherwise input
@@ -1229,17 +1234,19 @@
         gen-servlets-path (str gen-servlets-ns ".clj")]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [web-xml-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                     boot/input-files
-                                    (boot/by-re [(re-pattern (str web-xml-edn "$"))]))
-             web-xml-edn-f (condp = (count web-xml-edn-files)
-                             0 (do (util/info (str "Creating " web-xml-edn "\n"))
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                             0 (do (util/info (str "Creating " boot-config-edn "\n"))
                                    nil)
-                             1 (first web-xml-edn-files)
-                             (throw (Exception. "only one web.xml.edn file allowed; found " (count web-xml-edn-files))))
-             web-xml-edn-c (if web-xml-edn-f (-> (boot/tmp-file web-xml-edn-f) slurp read-string) {})]
-         ;; (println "web-xml-edn-c: " web-xml-edn-c)
-         (if (:servlets web-xml-edn-c)
+                             1 (first boot-config-edn-files)
+                             (throw (Exception. "only one _boot_config.edn file allowed; found " (count boot-config-edn-files))))
+             boot-config-edn-map (if boot-config-edn-f
+                                 (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                 {})]
+         ;; (println "boot-config-edn-map: " boot-config-edn-map)
+         (if (:servlets boot-config-edn-map)
              fileset
              (do
                ;; step 0: read the edn files
@@ -1254,18 +1261,18 @@
                        servlet-configs (-> (boot/tmp-file edn-servlets-f) slurp read-string)
                        servlet-configs (normalize-servlet-configs servlet-configs)
                        clj-servlets {:servlets (filter #(nil? (:class %)) (:servlets servlet-configs))}
-                       smap (-> web-xml-edn-c (assoc-in [:servlets]
+                       smap (-> boot-config-edn-map (assoc-in [:servlets]
                                                         (:servlets servlet-configs)))
-                       web-xml-edn-s (with-out-str (pp/pprint smap))]
-                   ;; (println "new web-xml-edn: " web-xml-edn-s)
-                   ;; step 1:  inject servlet config stanza to web.xml.edn
-                   (let [web-xml-edn-out-file (io/file edn-tmp-dir (boot/tmp-path web-xml-edn-f))]
-                     ;; (println "edn out: " web-xml-edn-out-file)
-                     (io/make-parents web-xml-edn-out-file)
-                     (spit web-xml-edn-out-file web-xml-edn-s))
+                       boot-config-edn-s (with-out-str (pp/pprint smap))]
+                   ;; (println "new boot-config-edn: " boot-config-edn-s)
+                   ;; step 1:  inject servlet config stanza to _boot_config.edn
+                   (let [boot-config-edn-out-file (io/file edn-tmp-dir (boot/tmp-path boot-config-edn-f))]
+                     ;; (println "edn out: " boot-config-edn-out-file)
+                     (io/make-parents boot-config-edn-out-file)
+                     (spit boot-config-edn-out-file boot-config-edn-s))
 
                    ;; step 2: gen servlets
-                   (let [gen-servlets-content (stencil/render-file "migae/boot_gae/gen-servlets.mustache"
+                   (let [gen-servlets-content (stencil/render-file "migae/templates/gen-servlets.mustache"
                                                                    (assoc clj-servlets
                                                                           :gen-servlets-ns
                                                                           gen-servlets-ns))
@@ -1289,7 +1296,7 @@
                      :invert true))
      (if keep
        (comp
-        (builtin/sift :to-resource #{(re-pattern web-xml-edn)})
+        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
         (builtin/sift :to-asset #{(re-pattern gen-servlets-path)}))
        identity)
      )))
@@ -1307,20 +1314,20 @@
         odir (if dir dir web-inf-dir)]
     ;; (println "ODIR: " odir)
     (boot/with-pre-wrap fileset
-      (let [web-xml-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+      (let [boot-config-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
                                 boot/input-files
-                                (boot/by-re [(re-pattern (str web-xml-edn "$"))]))]
-            ;; (boot/by-name [web-xml-edn]))]
-        (if (> (count web-xml-edn-fs) 1) (throw (Exception. "only one web.xml.edn file allowed")))
-        (if (= (count web-xml-edn-fs) 0) (throw (Exception. "web.xml.edn file not found")))
+                                (boot/by-re [(re-pattern (str boot-config-edn "$"))]))]
+            ;; (boot/by-name [boot-config-edn]))]
+        (if (> (count boot-config-edn-fs) 1) (throw (Exception. "only one _boot_config.edn file allowed")))
+        (if (= (count boot-config-edn-fs) 0) (throw (Exception. "_boot_config.edn file not found")))
 
-        (let [web-xml-edn-f (first web-xml-edn-fs)
-              web-xml (-> (boot/tmp-file web-xml-edn-f) slurp read-string)
-              path     (boot/tmp-path web-xml-edn-f)
-              in-file  (boot/tmp-file web-xml-edn-f)
+        (let [boot-config-edn-f (first boot-config-edn-fs)
+              web-xml (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+              path     (boot/tmp-path boot-config-edn-f)
+              in-file  (boot/tmp-file boot-config-edn-f)
               out-file (io/file edn-tmp path)]
           (let [content (stencil/render-file
-                         "migae/boot_gae/xml.web.mustache"
+                         "migae/templates/xml.web.mustache"
                          web-xml)]
             (if verbose (println content))
             (let [;;tmp-dir (boot/tmp-dir!)
