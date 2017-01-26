@@ -8,13 +8,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Added
 
 ### Changed
+- use \_boot\_config.edn instead of web.xml.edn as hidden config file
+- rename boot_gae/ to templates/
+- :gae map in build.boot reorganized (BREAKING)
 
 ## [0.1.0]
 ### Added
 - This CHANGELOG file to hopefully serve as an evolving example of a standardized open source project CHANGELOG.
 
 ### Changed
-- :gae map in build.boot reorganized (BREAKING)
 - :gae :app :dir uses relative path
 
 [Unreleased]: https://github.com/migae/boot-gae/tree/master
