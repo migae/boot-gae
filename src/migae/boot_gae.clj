@@ -273,7 +273,7 @@
   "generate gae appengine-web.xml"
   [c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
    d dir DIR str "output dir"
-   k keep bool str "keep intermediate .clj files"
+   k keep bool "keep intermediate .clj files"
    m module MODULE str "module dirpath"
    v verbose bool "Print trace messages."]
   ;; boolean hasUppercase = !password.equals(password.toLowerCase());
@@ -362,19 +362,18 @@
              ;; (boot/by-name [boot-config-edn]))
              boot-config-edn-f (condp = (count boot-config-edn-files)
                                  0 (do (util/info (str "Creating " boot-config-edn "\n"))
-                                       ;; this creates a java.io.File
-                                       (io/file boot-config-edn))
-                                 1 ;; this is a boot.tmpdir.TmpFile
-                                 (first boot-config-edn-files)
+                                       (io/file boot-config-edn)) ;; this creates a java.io.File
+                                 1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
                                  (throw (Exception. "only one _boot_config.edn file allowed")))
-             ;; _ (println "boot-config-edn-f: " boot-config-edn-f)
              boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
                                    (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
                                    {})]
          ;; (println "boot-config-edn-map: " boot-config-edn-map)
+
          (if (:appstats boot-config-edn-map)
            fileset
            (do
+             ;; step 1: read the edn config file
              (let [appstats-fs (->> (boot/input-files fileset)
                                     (boot/by-name [appstats-edn]))]
                (if (= (count appstats-fs) 0)
@@ -383,7 +382,9 @@
                  (throw (Exception. (str "only one " appstats-edn " file allowed"))))
                (let [appstats-edn-f (first appstats-fs)
                      appstats-config (-> (boot/tmp-file appstats-edn-f) slurp read-string)]
-                 (util/info (str "Elaborating " boot-config-edn " with :appstats stanza\n"))
+
+                 ;; step 2: inject appstats config map into master config map
+                 (if verbose (util/info (str "Elaborating " boot-config-edn " with :appstats stanza\n")))
                  (let [m (-> boot-config-edn-map
                              (assoc-in [:appstats] (:appstats appstats-config)))
                        boot-config-edn-s (with-out-str (pp/pprint m))
@@ -396,8 +397,13 @@
                    (spit boot-config-edn-out-file boot-config-edn-s)))))))
        (reset! prev-pre
                (-> fileset
-                   (boot/add-source workspace)
-                   boot/commit!))))))
+                   (boot/add-resource workspace)
+                   boot/commit!)))
+     (if keep
+       (comp
+        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
+       identity)
+     ))))
 
 (declare earxml filters install-sdk libs logging reloader servlets target webxml)
 
@@ -439,7 +445,7 @@
      )))
 
 (boot/deftask build
-  "assemble, configure, and build app"
+  "Configure and build servlet or service app"
   [k keep bool "keep intermediate .clj and .edn files"
    p prod bool "production build, without reloader"
    s service bool "build a service"
@@ -531,7 +537,7 @@
   "generate xml config files for microservices app"
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
-   k keep bool str "keep intermediate .clj files"
+   k keep bool "keep intermediate .clj files"
    v verbose bool "Print trace messages."]
   (let [edn-tmp (boot/tmp-dir!)
         prev-pre (atom nil)
@@ -651,7 +657,7 @@
     (. method invoke nil invoke-args)))
 
 (boot/deftask filters
-  "generate filters; update _boot_config.edn with filter config data"
+  "generate filters class files"
 
   [k keep bool "keep intermediate .clj files"
    n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
@@ -815,7 +821,7 @@
 
 ;; FIXME:  for dev phase, we want to include deps in test scope
 (boot/deftask libs
-  ""
+  "Install dependency jars in WEB-INF/lib"
   [v verbose bool "Print trace messages."]
   (let [checkout-vec (-> (boot/get-env) :checkouts)
         cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
@@ -999,7 +1005,7 @@
    s service bool "build as service"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  (let [edn-tmp (boot/tmp-dir!)
+  (let [workspace (boot/tmp-dir!)
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
 
@@ -1014,35 +1020,38 @@
         ]
     (comp
      (boot/with-pre-wrap [fileset]
-       (let [webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                                   boot/input-files
-                                   (boot/by-name [webapp-edn]))
-             webapp-edn-f (condp = (count webapp-edn-files)
-                            0 nil
-                            1 (first webapp-edn-files)
-                            (throw (Exception. "only one webapp.edn file allowed")))
-             webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
+       (let [
+             ;; webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+             ;;                       boot/input-files
+             ;;                       (boot/by-name [webapp-edn]))
+             ;; webapp-edn-f (condp = (count webapp-edn-files)
+             ;;                0 nil
+             ;;                1 (first webapp-edn-files)
+             ;;                (throw (Exception. "only one webapp.edn file allowed")))
+             ;; webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
              boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                     boot/input-files
                                     (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
                                     ;; (boot/by-name [boot-config-edn]))
              boot-config-edn-f (condp = (count boot-config-edn-files)
                              0 (do (util/info (str "Creating " boot-config-edn "\n"))
-                                   nil)
-                             1 (first boot-config-edn-files)
+                                   (io/file boot-config-edn)) ;; this creates a java.io.File
+                             1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
                              (throw (Exception.
-                                     (str "only one _boot_config.edn file allowed, found " (count boot-config-edn-files)))))
-             boot-config-edn-map (if boot-config-edn-f
-                                 (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
-                                 {})
-             boot-config-edn-map (merge boot-config-edn-map webapp-edn-map)]
-         ;; (println "boot-config-edn-map: " boot-config-edn-map)
+                                     (str "only one _boot_config.edn file allowed, found "
+                                          (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})
+             ;; boot-config-edn-map (merge boot-config-edn-map webapp-edn-map)
+             ]
+         (println "boot-config-edn-map: " boot-config-edn-map)
 
          (if (:reloader boot-config-edn-map)
            fileset
            (do
-             ;; step 1: inject :reloader stanza into _boot_config.edn
              ;; (add-reloader! reloader-impl-ns urls in-file out-file)
+             ;; step 1: create config map for reloader, inject into master config file
              (let [urls (flatten (concat (map #(% :urls) (:servlets boot-config-edn-map))))
                    m (-> boot-config-edn-map (assoc-in [:reloader]
                                                  {:ns reloader-impl-ns
@@ -1052,7 +1061,10 @@
                                                             (vec urls))
                                                   :desc {:text "Clojure reload filter"}}))
                    boot-config-edn-s (with-out-str (pp/pprint m))
-                   boot-config-edn-out-file (io/file edn-tmp (boot/tmp-path boot-config-edn-f))]
+                   boot-config-edn-out-file (io/file workspace
+                                                     (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                                       (boot/tmp-path boot-config-edn-f)
+                                                       boot-config-edn-f))]
                (io/make-parents boot-config-edn-out-file)
                (spit boot-config-edn-out-file boot-config-edn-s))
 
@@ -1077,7 +1089,7 @@
                (util/info "Configuring reloader\n")
                (reset! prev-pre
                        (-> fileset
-                           (boot/add-source edn-tmp)
+                           (boot/add-source workspace)
                            (boot/add-source aot-tmp-dir)
                            (boot/add-asset impl-tmp-dir)
                            boot/commit!)))))))
@@ -1212,18 +1224,14 @@
                            :ns ns})))))})
 
 (boot/deftask servlets
-  "generate servlets; update _boot_config.edn with servlet config data"
-
-  ;; both subtasks require reading of servlets.edn
-  ;; read from resources if avail, otherwise input
-
+  "generate servlets class files"
   [k keep bool "keep intermediate .clj files"
    ;; d odir DIR str "output dir for generated class files"
    ;; c config-sym SYM sym "namespaced symbol bound to meta-config data"
    n gen-servlets-ns NS str "namespace to generate and aot; default: 'servlets"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
-  (let [edn-tmp-dir (boot/tmp-dir!)
+  (let [workspace (boot/tmp-dir!)
         prev-pre (atom nil)
         ;; config-sym (if config-sym config-sym 'servlets/config)
         ;; config-ns (symbol (namespace config-sym))
@@ -1238,58 +1246,67 @@
                                     boot/input-files
                                     (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
              boot-config-edn-f (condp = (count boot-config-edn-files)
-                             0 (do (util/info (str "Creating " boot-config-edn "\n"))
-                                   nil)
-                             1 (first boot-config-edn-files)
-                             (throw (Exception. "only one _boot_config.edn file allowed; found " (count boot-config-edn-files))))
-             boot-config-edn-map (if boot-config-edn-f
-                                 (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
-                                 {})]
+                             0 (do (if verbose (util/info (str "Creating " boot-config-edn "\n")))
+                                   (io/file boot-config-edn)) ;; this creates a java.io.File
+                             1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                             (throw (Exception.
+                                     (str "only one " boot-config-edn " file allowed; found "
+                                          (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})]
          ;; (println "boot-config-edn-map: " boot-config-edn-map)
+
          (if (:servlets boot-config-edn-map)
              fileset
              (do
-               ;; step 0: read the edn files
+               ;; step 1: read the edn config file and construct map
                (let [servlets-edn-files (->> (boot/input-files fileset)
-                                             (boot/by-name [servlets-edn]))]
-                 (if (> (count servlets-edn-files) 1)
-                   (throw (Exception. "only one servlets.edn file allowed")))
-                 (if (= (count servlets-edn-files) 0)
-                   (throw (Exception. "cannot find servlets.edn")))
+                                             (boot/by-name [servlets-edn]))
+                     servlets-edn-f (condp = (count servlets-edn-files)
+                                        0 (throw (Exception. (str "Cannot find " servlets-edn " file.")))
+                                        1 (first servlets-edn-files)
+                                        ;; > 1
+                                        (throw (Exception.
+                                                (str "Only one " servlets-edn "file allowed; found "
+                                                     (count servlets-edn-files)))))
+                     servlets-edn-map (-> (boot/tmp-file servlets-edn-f) slurp read-string)
+                     servlets-config-map (normalize-servlet-configs servlets-edn-map)
+                     servlets-config-map {:servlets (filter #(nil? (:class %))
+                                                            (:servlets servlets-config-map))}
 
-                 (let [edn-servlets-f (first servlets-edn-files)
-                       servlet-configs (-> (boot/tmp-file edn-servlets-f) slurp read-string)
-                       servlet-configs (normalize-servlet-configs servlet-configs)
-                       clj-servlets {:servlets (filter #(nil? (:class %)) (:servlets servlet-configs))}
-                       smap (-> boot-config-edn-map (assoc-in [:servlets]
-                                                        (:servlets servlet-configs)))
-                       boot-config-edn-s (with-out-str (pp/pprint smap))]
-                   ;; (println "new boot-config-edn: " boot-config-edn-s)
-                   ;; step 1:  inject servlet config stanza to _boot_config.edn
-                   (let [boot-config-edn-out-file (io/file edn-tmp-dir (boot/tmp-path boot-config-edn-f))]
-                     ;; (println "edn out: " boot-config-edn-out-file)
-                     (io/make-parents boot-config-edn-out-file)
-                     (spit boot-config-edn-out-file boot-config-edn-s))
+                     ;; step 2: inject servlets config map into master config map
+                     master-config (-> boot-config-edn-map (assoc-in [:servlets]
+                                                                     (:servlets servlets-config-map)))
+                     master-config (with-out-str (pp/pprint master-config))
+                     ;; step 3: create new master config file
+                     boot-config-edn-out-file (io/file workspace
+                                                       (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                                         (boot/tmp-path boot-config-edn-f)
+                                                         boot-config-edn-f))
+                     ;; step 4: create servlet generator
+                     gen-servlets-content (stencil/render-file "migae/templates/gen-servlets.mustache"
+                                                               (assoc servlets-config-map
+                                                                      :gen-servlets-ns
+                                                                      gen-servlets-ns))
+                     gen-servlets-out-file (doto (io/file gen-servlets-tmp-dir gen-servlets-path)
+                                             io/make-parents)]
+                 ;; step 5: write new files
+                 (io/make-parents boot-config-edn-out-file)
+                 (spit boot-config-edn-out-file master-config)
+                 (spit gen-servlets-out-file gen-servlets-content)))))
 
-                   ;; step 2: gen servlets
-                   (let [gen-servlets-content (stencil/render-file "migae/templates/gen-servlets.mustache"
-                                                                   (assoc clj-servlets
-                                                                          :gen-servlets-ns
-                                                                          gen-servlets-ns))
-                         gen-servlets-out-file (doto
-                                                   (io/file gen-servlets-tmp-dir gen-servlets-path)
-                                                 io/make-parents)]
-                     (spit gen-servlets-out-file gen-servlets-content)))))))
-       (util/info "Configuring servlets...\n")
+       (if verbose (util/info "Configuring servlets...\n"))
 
-       ;; step 3: commit files to fileset
+       ;; step 6: commit files to fileset
        (reset! prev-pre
                (-> fileset
-                   (boot/add-source edn-tmp-dir)
+                   (boot/add-source workspace)
                    (boot/add-source gen-servlets-tmp-dir)
                    boot/commit!)))
-     (builtin/aot :namespace #{gen-servlets-ns}) ;; :dir (str web-inf "/classes"))
-     ;; (builtin/sift :move {#"(.*class$)" (str web-inf "/classes/$1")})
+
+     (builtin/aot :namespace #{gen-servlets-ns})
+
      (if keep
        identity
        (builtin/sift :include #{(re-pattern (str gen-servlets-ns ".*.class"))}
@@ -1305,7 +1322,7 @@
   "generate gae web.xml"
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
-   k keep bool str "keep intermediate .clj files"
+   k keep bool "keep intermediate .clj files"
    r reloader bool "install reloader filter"
    v verbose bool "Print trace messages."]
 ;;  (println "TASK: config-webapp")
