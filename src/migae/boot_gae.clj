@@ -275,58 +275,79 @@
    d dir DIR str "output dir"
    k keep bool "keep intermediate .clj files"
    m module MODULE str "module dirpath"
+   s servlet-app SERVLET bool "generate config for servlet-app instead of service component"
    v verbose bool "Print trace messages."]
   ;; boolean hasUppercase = !password.equals(password.toLowerCase());
   (let [tmp-dir (boot/tmp-dir!)
         prev-pre (atom nil)
-        dir (if dir dir web-inf-dir)
-        version (str/replace (-> (boot/get-env) :gae :module :version) "." "-")]
-    (if (not= version  (.toLowerCase version))
-      (throw (Exception. (str "Upper-case not allowed in GAE version string: " version))))
+        dir (if dir dir web-inf-dir)]
     (boot/with-pre-wrap fileset
-      (let [webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                                  boot/input-files
-                                  (boot/by-name [webapp-edn]))
-            webapp-edn-f (condp = (count webapp-edn-files)
-                           0 nil
-                           1 (first webapp-edn-files)
-                           (throw (Exception. "only one webapp.edn file allowed")))
-            webapp-edn-map (if webapp-edn-f (-> (boot/tmp-file webapp-edn-f) slurp read-string) {})
-            appengine-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-                            boot/input-files
-                            (boot/by-name [appengine-edn]))]
-        (if (> (count appengine-edn-fs) 1) (throw (Exception. "only one _boot_config.edn file allowed")))
-        (if (= (count appengine-edn-fs) 0) (throw (Exception. "_boot_config.edn file not found")))
+       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                             0 (do (if verbose (util/info (str "Creating " boot-config-edn "\n")))
+                                   (io/file boot-config-edn)) ;; this creates a java.io.File
+                             1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                             (throw (Exception.
+                                     (str "only one " boot-config-edn " file allowed; found "
+                                          (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})
 
-        (let [appengine-edn-f (first appengine-edn-fs)
-              gae-forms (-> (boot/tmp-file appengine-edn-f) slurp read-string)
-              gae-forms (merge gae-forms
-                               (if (-> webapp-edn-map :module)
-                                 (if (-> webapp-edn-map :module :default)
-                                   {}
-                                   {:module (str (-> webapp-edn-map :module :name))})
-                                 {}))
-              app-id (name (-> (boot/get-env) :gae :app :id))
-              version (str/replace (-> (boot/get-env) :gae :module :version) "." "-")
-              module (-> (boot/get-env) :gae :module :name)
-              ;; module (if (:module gae-forms)
-              ;;          (str (:module gae-forms) "-" version)
-              ;;          nil)
-              gae-map (assoc gae-forms
-                             :app-id app-id
-                             :version version
-                             :module {:name module})]
-          ;; (println "gae-map: " gae-map)
-          (let [content (stencil/render-file
-                         "migae/templates/xml.appengine-web.mustache"
-                         gae-map)]
-            (if verbose (println content))
-            (util/info "Configuring appengine-web.xml\n")
-            (let [xml-out-path (str dir "/appengine-web.xml")
-                  xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
-                  ]
-              (spit xml-out-file content)))))
-      (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
+             appengine-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
+                                   boot/input-files
+                                   (boot/by-name [appengine-edn]))
+
+             appengine-edn-f (condp = (count appengine-edn-fs)
+                               0 (throw (Exception. appengine-edn " file not found"))
+                               1 (first appengine-edn-fs)
+                               (throw (Exception. (str "Only one " appengine-edn " file allowed"))))
+
+             appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)
+
+             appengine-config-map (assoc-in appengine-config-map
+                                            [:module :name]
+                                            (if servlet-app
+                                              "default"
+                                              (if (-> appengine-config-map :module)
+                                                (if (-> appengine-config-map :module :default)
+                                                  "default"
+                                                  (if-let [m (-> appengine-config-map :module :name)]
+                                                    m
+                                                    (throw (Exception.
+                                                            (str ":module :name required in " appengine-edn)))))
+                                                (throw (Exception. (str ":module clause required in" appengine-edn))))))
+
+             app-id (name (-> (boot/get-env) :gae :app :id))
+
+              version (-> appengine-config-map :module :version)
+              _ (if version
+                  (if (not= version  (.toLowerCase version))
+                    (throw (Exception. (str "Upper-case not allowed in GAE version string: " version))))
+                  (throw (Exception. ":module :version string required in " appengine-edn)))
+
+              appengine-config-map (assoc
+                                    (-> appengine-config-map
+                                        (assoc-in [:system-properties]
+                                                  (into
+                                                   (:system-properties appengine-config-map)
+                                                   {:props (:system-properties boot-config-edn-map)})))
+                                    :app-id app-id)
+             ]
+
+         (println "appengine-config-map 2: " appengine-config-map)
+         (let [content (stencil/render-file
+                        "migae/templates/xml.appengine-web.mustache"
+                        appengine-config-map)]
+           ;;(if verbose (println content))
+           (if verbose (util/info "Configuring appengine-web.xml\n"))
+           (let [xml-out-path (str dir "/appengine-web.xml")
+                 xml-out-file (doto (io/file tmp-dir xml-out-path) io/make-parents)
+                 ]
+             (spit xml-out-file content))))
+    (-> fileset (boot/add-resource tmp-dir) boot/commit!))))
 
 ;; (defn- add-appstats!
 ;;   [reloader-ns urls in-file out-file]
@@ -368,7 +389,7 @@
              boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
                                    (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
                                    {})]
-         ;; (println "boot-config-edn-map: " boot-config-edn-map)
+         (println "boot-config-edn-map: " boot-config-edn-map)
 
          (if (:appstats boot-config-edn-map)
            fileset
@@ -400,10 +421,9 @@
                    (boot/add-resource workspace)
                    boot/commit!)))
      (if keep
-       (comp
-        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
+       (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
        identity)
-     ))))
+     )))
 
 (declare earxml filters install-sdk libs logging reloader servlets target webxml)
 
@@ -916,7 +936,8 @@
    v verbose bool "Print trace messages."
    o odir ODIR str "output dir"]
   ;; (print-task "logging" *opts*)
-  (let [content (stencil/render-file
+  (let [workspace (boot/tmp-dir!)
+        content (stencil/render-file
                  (if (= log :log4j)
                    "migae/templates/log4j.properties.mustache"
                    "migae/templates/logging.properties.mustache")
@@ -936,12 +957,10 @@
     ;; (println "mv pattern: " mv-arg)
     (comp
      (boot/with-pre-wrap fs
-       (let [tmp-dir (boot/tmp-dir!)
-             ;; _ (println "odir: " odir)
-             out-file (doto (io/file tmp-dir (str odir "/" out-path)) io/make-parents)]
+       (let [out-file (doto (io/file workspace (str odir "/" out-path)) io/make-parents)]
          (spit out-file content)
          (util/info "Configuring logging...\n")
-         (-> fs (boot/add-resource tmp-dir) boot/commit!))))))
+         (-> fs (boot/add-resource workspace) boot/commit!))))))
 
 (boot/deftask monitor
   "watch etc. for gae project"
@@ -1045,7 +1064,7 @@
                                    {})
              ;; boot-config-edn-map (merge boot-config-edn-map webapp-edn-map)
              ]
-         (println "boot-config-edn-map: " boot-config-edn-map)
+         ;; (println "boot-config-edn-map: " boot-config-edn-map)
 
          (if (:reloader boot-config-edn-map)
            fileset
@@ -1075,10 +1094,10 @@
                    gen-reloader-content (stencil/render-file "migae/templates/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
                                                               :reloader-impl-ns reloader-impl-ns})
-                   _ (if verbose (println "impl: " reloader-impl-path))
-                   _ (if verbose (println "impl: " reloader-impl-content))
-                   _ (if verbose (println "gen: " gen-reloader-path))
-                   _ (if verbose (println "gen: " gen-reloader-content))
+                   ;; _ (if verbose (println "impl: " reloader-impl-path))
+                   ;; _ (if verbose (println "impl: " reloader-impl-content))
+                   ;; _ (if verbose (println "gen: " gen-reloader-path))
+                   ;; _ (if verbose (println "gen: " gen-reloader-content))
 
                    aot-tmp-dir (boot/tmp-dir!)
                    aot-out-file (doto (io/file aot-tmp-dir gen-reloader-path) io/make-parents)
@@ -1086,7 +1105,7 @@
                    impl-out-file (doto (io/file impl-tmp-dir reloader-impl-path) io/make-parents)]
                (spit aot-out-file gen-reloader-content)
                (spit impl-out-file reloader-impl-content)
-               (util/info "Configuring reloader\n")
+               (if verbose (util/info "Configuring reloader\n"))
                (reset! prev-pre
                        (-> fileset
                            (boot/add-source workspace)
@@ -1326,7 +1345,7 @@
    r reloader bool "install reloader filter"
    v verbose bool "Print trace messages."]
 ;;  (println "TASK: config-webapp")
-  (let [edn-tmp (boot/tmp-dir!)
+  (let [workspace (boot/tmp-dir!)
         prev-pre (atom nil)
         odir (if dir dir web-inf-dir)]
     ;; (println "ODIR: " odir)
@@ -1342,23 +1361,22 @@
               web-xml (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
               path     (boot/tmp-path boot-config-edn-f)
               in-file  (boot/tmp-file boot-config-edn-f)
-              out-file (io/file edn-tmp path)]
+              out-file (io/file workspace path)]
           (let [content (stencil/render-file
                          "migae/templates/xml.web.mustache"
                          web-xml)]
-            (if verbose (println content))
             (let [;;tmp-dir (boot/tmp-dir!)
                   xml-out-path (str odir "/web.xml")
-                  xml-out-file (doto (io/file edn-tmp xml-out-path) io/make-parents)
+                  xml-out-file (doto (io/file workspace xml-out-path) io/make-parents)
                   ;; reloader (doto (io/file tmp-dir "foobar.xml") io/make-parents)
                   ]
            ;; web.xml always
            ;; (if (.exists reloader)
            ;;   nop
            ;;   create empty reloader
-              (util/info "Configuring web.xml\n")
+              (if verbose (util/info "Configuring web.xml\n"))
               (spit xml-out-file content)))))
-      (-> fileset (boot/add-resource edn-tmp) boot/commit!))))
+      (-> fileset (boot/add-resource workspace) boot/commit!))))
 
 
 ;; (boot/deftask mods
