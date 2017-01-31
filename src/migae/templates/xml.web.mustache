@@ -56,12 +56,12 @@
 
   <!-- #################### -->
   {{#servlets}}
-  {{#urls}}
+  {{#servlet.urls}}
   <servlet-mapping>
     <url-pattern>{{url}}</url-pattern>
     <servlet-name>{{name}}</servlet-name>
   </servlet-mapping>
-  {{/urls}}
+  {{/servlet.urls}}
   <servlet>
     <servlet-name>{{name}}</servlet-name>
     <servlet-class>{{ns}}</servlet-class>
