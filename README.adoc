@@ -6,6 +6,9 @@ programming - edit your Clojure source and see the result immediately,
 by refreshing your webpage, not restarting your app. Replaces and
 improves on the maven/gradle build systems provided by Google.
 
+WARNING: GAE Standard Environment does not support Java 1.8 or above.
+Be *sure* to build your app with Java 1.7!
+
 Table of Contents
 
 * <<getting-started,getting started>>
@@ -689,6 +692,12 @@ through its startup code, at least.
 [[troubleshooting]]
 == troubleshooting
 
+* `clojure.lang.ExceptionInfo: Map literal must contain an even number of forms`
+
+This means one of your edn config files is malformed.
+
+=== building
+
 ==== deployment
 
 
@@ -698,6 +707,9 @@ through its startup code, at least.
   are logged in to a different account.  Just delete
   `~/.appcfg_oauth2_tokens_java` and try again.
 
+* You get an error like: `POST /hello HTTP/1.1" 200 92 -
+  "Apache-HttpClient/UNAVAILABLE (Java/1.8.0_112)"`. This means you
+  used Java 1.8 to build your app. You must use 1.7 or lower.
 
 [[todo]]
 === todo
