@@ -832,9 +832,9 @@
   (fn middleware [next-handler]
     (fn handler [fileset]
       (let [e (boot/get-env)
-            target-dir (get-target-dir fileset false)
+            ;; target-dir (get-target-dir fileset false)
             jarname (util/jarname project version)
-            jarpath (str target-dir "/" jarname)
+            ;; jarpath (str target-dir "/" jarname)
             target-middleware (comp
                                (builtin/pom)
                                (builtin/jar)
