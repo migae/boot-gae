@@ -16,12 +16,10 @@
   <!-- #################### -->
 
   {{#reloader}}
-  {{#urls}}
   <filter-mapping>
-    <url-pattern>{{url}}</url-pattern>
+    <url-pattern>/*</url-pattern>
     <filter-name>reloader</filter-name>
   </filter-mapping>
-  {{/urls}}
   <filter>
     <filter-name>reloader</filter-name>
     <filter-class>{{ns}}</filter-class>
@@ -56,15 +54,15 @@
 
   <!-- #################### -->
   {{#servlets}}
-  {{#servlet.urls}}
+  {{#urls}}
   <servlet-mapping>
-    <url-pattern>{{url}}</url-pattern>
+    <url-pattern>{{path}}</url-pattern>
     <servlet-name>{{name}}</servlet-name>
   </servlet-mapping>
-  {{/servlet.urls}}
+  {{/urls}}
   <servlet>
     <servlet-name>{{name}}</servlet-name>
-    <servlet-class>{{ns}}</servlet-class>
+    <servlet-class>{{servlet.ns}}</servlet-class>
     {{#display}}
     <display-name>{{name}}</display-name>
     {{/display}}
