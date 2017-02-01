@@ -23,6 +23,8 @@
 (def webapp-edn "webapp.edn")
 (def appengine-edn "appengine.edn")
 (def appstats-edn "appstats.edn")
+(def jul-edn "jul.edn")
+(def log4j-edn "log4j.edn")
 
 (def meta-inf-dir "META-INF")
 (def web-inf-dir "WEB-INF")
@@ -647,8 +649,6 @@
       (let [appengine-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
                                             boot/input-files
                                             (boot/by-re [(re-pattern (str appengine-edn "$"))]))
-            ;; (if (> (count services-fs) 1) (throw (Exception. "Only one " appengine-edn " file allowed")))
-            ;; (if (= (count services-fs) 0)
             appengine-config-edn-f (condp = (count appengine-config-edn-files)
                                      0 (throw (Exception. appengine-edn " file not found"))
                                      1 (first appengine-config-edn-files)
@@ -1013,36 +1013,81 @@
 
 ;; FIXME: drive this from logging.edn
 (boot/deftask logging
-  "configure gae logging"
-  [l log LOG kw ":log4j or :jul"
+  "configure gae logging; default: log4j"
+  [;;l log LOG kw ":log4j or :jul"
+   j jul bool "use java.util.logging instead of default log4j"
    v verbose bool "Print trace messages."
    o odir ODIR str "output dir"]
   ;; (print-task "logging" *opts*)
-  (let [workspace (boot/tmp-dir!)
-        content (stencil/render-file
-                 (if (= log :log4j)
-                   "migae/templates/log4j.properties.mustache"
-                   "migae/templates/logging.properties.mustache")
-                   config-map)
-        odir (if odir odir
-                 (condp = log
-                   :jul web-inf-dir
-                   :log4j classes-dir
-                   nil web-inf-dir
-                   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
-        out-path (condp = log
-                   :log4j "log4j.properties"
-                   :jul "logging.properties"
-                   nil  "logging.properties")
-        mv-arg {(re-pattern out-path) (str odir "/$1")}]
-    ;; (println "STENCIL: " content)
-    ;; (println "mv pattern: " mv-arg)
-    (comp
-     (boot/with-pre-wrap fs
-       (let [out-file (doto (io/file workspace (str odir "/" out-path)) io/make-parents)]
+  (fn middleware [next-handler]
+    (fn handler [fileset]
+      (let [workspace (boot/tmp-dir!)
+            log4j-edn-files (->> fileset
+                                 boot/input-files
+                                 (boot/by-re [(re-pattern (str log4j-edn "$"))]))
+            log4j-edn-f (condp = (count log4j-edn-files)
+                          0 (throw (Exception. (str appengine-edn " file not found")))
+                          1 (first log4j-edn-files)
+                          (throw (Exception.
+                                  (str "Only one " appengine-edn " file allowed; found "
+                                       (count log4j-edn-files)))))
+            log4j-cfg (-> (boot/tmp-file log4j-edn-f) slurp read-string)
+
+            jul-edn-files (->> fileset
+                                 boot/input-files
+                                 (boot/by-re [(re-pattern (str jul-edn "$"))]))
+            jul-edn-f (condp = (count jul-edn-files)
+                          0 (throw (Exception. (str appengine-edn " file not found")))
+                          1 (first jul-edn-files)
+                          (throw (Exception.
+                                  (str "Only one " appengine-edn " file allowed; found "
+                                       (count jul-edn-files)))))
+            jul-cfg (-> (boot/tmp-file jul-edn-f) slurp read-string)
+
+            boot-config-edn-files (->> fileset
+                                       boot/input-files
+                                       (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                                 0 (throw (Exception. (str boot-config-edn " file not found")))
+                                 ;; 0 (do (util/info (str "Creating " boot-config-edn "\n"))
+                                 ;;       (io/file boot-config-edn)) ;; this creates a java.io.File
+                                 1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                                 (throw (Exception.
+                                         (str "only one _boot_config.edn file allowed, found "
+                                              (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})
+
+            content (stencil/render-file
+                     (if jul
+                       "migae/templates/logging.properties.mustache"
+                       "migae/templates/log4j.properties.mustache")
+                     (merge boot-config-edn-map (if jul jul-cfg log4j-cfg)))
+
+            odir (if odir odir
+                     (if jul web-inf-dir classes-dir))
+            ;; (condp = log
+            ;;   :jul web-inf-dir
+            ;;   :log4j classes-dir
+            ;;   nil web-inf-dir
+            ;;   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
+            out-path (if jul "logging.properties" "log4j.properties")
+            #_(condp = log
+                :log4j "log4j.properties"
+                :jul "logging.properties"
+                nil  "logging.properties")
+            mv-arg {(re-pattern out-path) (str odir "/$1")}
+
+            target-middleware identity
+            target-handler (target-middleware next-handler)
+
+            out-file (doto (io/file workspace (str odir "/" out-path)) io/make-parents)]
+
          (spit out-file content)
-         (util/info "Configuring logging...\n")
-         (-> fs (boot/add-resource workspace) boot/commit!))))))
+         (if verbose (util/info "Configuring logging...\n"))
+         (target-handler (-> fileset (boot/add-resource workspace) boot/commit!))))))
 
 (boot/deftask monitor
   "watch etc. for gae project"

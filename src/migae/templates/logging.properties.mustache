@@ -23,4 +23,14 @@
 # FINEST (lowest value)
 
 # Set the default logging level for all loggers to ALL
-.level = INFO
+handlers={{handlers}}
+.level = {{level}}
+{{handlers}}.formatter={{formatter}}
+
+{{#servlets}}
+{{#jul}}
+{{ns}}.level={{level}}
+{{ns}}.handler={{handler}}
+{{/jul}}
+
+{{/servlets}}
