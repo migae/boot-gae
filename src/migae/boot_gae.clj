@@ -45,32 +45,64 @@
   [fileset servlet]
   (if servlet
     "target"
-    (let [boot-config-edn-files (->> (boot/input-files fileset)
-                                     (boot/by-name [boot-config-edn]))
-          boot-config-edn-f (condp = (count boot-config-edn-files)
-                              0 nil
-                              1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
-                              (throw (Exception.
-                                      (str "only one _boot_config.edn file allowed, found "
-                                           (count boot-config-edn-files)))))
-          boot-config-edn-map (if boot-config-edn-f
-                                (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
-                                nil)]
-      (if boot-config-edn-map
-        (str "target/" (-> boot-config-edn-map :module :name))
+    ;; (let [boot-config-edn-files (->> (boot/input-files fileset)
+    ;;                                  (boot/by-name [boot-config-edn]))
+    ;;       boot-config-edn-f (condp = (count boot-config-edn-files)
+    ;;                           0 (throw (Exception. (str boot-config-edn " file not found")))
+    ;;                           1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+    ;;                           (throw (Exception.
+    ;;                                   (str "only one _boot_config.edn file allowed, found "
+    ;;                                        (count boot-config-edn-files)))))
+    ;;       boot-config-edn-map (if boot-config-edn-f
+    ;;                             (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+    ;;                             nil)]
+    ;;   (if boot-config-edn-map
+    ;;     (str "target/" (-> boot-config-edn-map :module :name))
         (let [appengine-edn-fs (->> fileset
                                     boot/input-files
                                     (boot/by-name [appengine-edn]))
 
               appengine-edn-f (condp = (count appengine-edn-fs)
-                                0 (throw (Exception. appengine-edn " file not found"))
+                                0 (throw (Exception. (str appengine-edn " file not found")))
                                 1 (first appengine-edn-fs)
                                 (throw (Exception. (str "Only one " appengine-edn " file allowed"))))
 
               appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)]
           (if servlet "target" (if (-> appengine-config-map :services)
                                  "target/default"
-                                 (str "target/" (-> appengine-config-map :module :name)))))))))
+                                 (str "target/" (-> appengine-config-map :module :name)))))))
+
+(defn get-module-name
+  [fileset servlet]
+  (if servlet
+    "default"
+    ;; (let [boot-config-edn-files (->> (boot/input-files fileset)
+    ;;                                  (boot/by-name [boot-config-edn]))
+    ;;       boot-config-edn-f (condp = (count boot-config-edn-files)
+    ;;                           0 (throw (Exception. boot-config-edn " file not found"))
+    ;;                           1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+    ;;                           (throw (Exception.
+    ;;                                   (str "only one _boot_config.edn file allowed, found "
+    ;;                                        (count boot-config-edn-files)))))
+    ;;       boot-config-edn-map (if boot-config-edn-f
+    ;;                             (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+    ;;                             nil)]
+    ;;   (if boot-config-edn-map
+    ;;           (-> boot-config-edn-map :module :name)
+        (let [appengine-edn-fs (->> fileset
+                                    boot/input-files
+                                    (boot/by-name [appengine-edn]))
+              appengine-edn-f (condp = (count appengine-edn-fs)
+                                0 (throw (Exception. appengine-edn " file not found"))
+                                1 (first appengine-edn-fs)
+                                (throw (Exception. (str "Only one " appengine-edn " file allowed"))))
+
+              appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)
+              module (if servlet "default"
+                         (if (-> appengine-config-map :services)
+                           "default"
+                           (-> appengine-config-map :module :name)))]
+          module)))
 
 (defn expand-home [s]
   (if (or (.startsWith s "~") (.startsWith s "$HOME"))
@@ -303,6 +335,7 @@
    k keep bool "keep intermediate .clj files"
    m module MODULE str "module dirpath"
    s servlet bool "generate config for servlet app instead of service component DEPRECATED"
+   u unit-test bool "configure for unit testing (module: 'default')"
    v verbose bool "Print trace messages."]
   ;; boolean hasUppercase = !password.equals(password.toLowerCase());
   (let [workspace (boot/tmp-dir!)
@@ -335,7 +368,8 @@
 
              appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)
 
-             module (if servlet "default"
+             module (if unit-test "default" (get-module-name fileset servlet))
+             #_(if servlet "default"
                         (if (-> appengine-config-map :services)
                           "default"
                           (if (-> appengine-config-map :module)
@@ -475,45 +509,49 @@
 (boot/deftask assemble
   "assemble a service-based app (ear)"
   [v verbose bool "Print trace messages."]
-  (let [tmpdir (boot/tmp-dir!)
-        dfl-scopes #{"compile" "runtime" "provided"}
-        scopes dfl-scopes
-        ;; scopes     (-> dfl-scopes
-        ;;                (set/union include-scope)
-        ;;                (set/difference exclude-scope))
-        scope?     #(contains? scopes (:scope (util/dep-as-map %)))
-        checkouts  (->> (boot/get-checkouts)
-                        (filter (comp scope? :dep val))
-                        (into {}))
-        co-jars    (->> checkouts (map (comp :jar val)))
-        co-dirs    (->> checkouts (map (comp :dir val)))
+  (fn middleware [next-handler]
+    (fn handler [fileset]
+      (if verbose (util/info "Assembling application"))
+      (let [workspace (boot/tmp-dir!)
+            appengine-config-edn-files (->> (boot/input-files fileset)
+                                            (boot/by-re [(re-pattern (str appengine-edn "$"))]))
+            ;; (if (> (count services-fs) 1) (throw (Exception. "Only one " appengine-edn " file allowed")))
+            ;; (if (= (count services-fs) 0)
+            appengine-config-edn-f (condp = (count appengine-config-edn-files)
+                                     0 (throw (Exception. appengine-edn " file not found"))
+                                     1 (first appengine-config-edn-files)
+                                     (throw (Exception.
+                                             (str "Only one " appengine-edn " file allowed; found "
+                                                  (count appengine-config-edn-files)))))
 
-        checkout-vec (-> (boot/get-env) :checkouts)
-        cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
-        ]
-    (comp
-     (earxml)
-     (boot/with-pre-wrap [fileset]
-       (doseq [co cos]
-         (let [mod (if (:default co) "default" (if-let [mod (:module co)] mod "default"))]
-           (let [corec (get checkouts (first (:coords co)))
-                 co-dir (:dir corec)
-                 jar-path (.getPath (:jar corec))
-                 out-dir (doto (io/file tmpdir mod) io/make-parents)]
-             ;; (println "co-dir: " co-dir)
-             ;; (println "out-dir: " out-dir)
-             (fs/copy-dir co-dir out-dir))))
-       (-> fileset
-           (boot/add-asset tmpdir :exclude #{(re-pattern (str "/META-INF/.*"))})
-           (boot/commit!)))
-     (target)
-     )))
+            appengine-cfg (-> (boot/tmp-file appengine-config-edn-f) slurp read-string)
+            services (:services appengine-cfg)
+
+            target-middleware identity
+            target-handler (target-middleware next-handler)]
+        (doseq [service services]
+          (let [coord (pod/map->coord service)
+                jar-path (pod/resolve-dependency-jar (boot/get-env) coord)
+                out-dir (io/file workspace)]
+                ;;(doto (io/file workspace (:name service)) io/make-parents)]
+            (pod/unpack-jar jar-path out-dir)))
+        (target-handler (-> fileset ;; (boot/new-fileset)
+                            (boot/add-asset workspace :exclude #{(re-pattern (str "/META-INF/.*"))})
+                            (boot/commit!)))))))
 
 (boot/deftask build-sift
-  []
-  (comp
-   (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-   (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})))
+  [u unit-test bool "sift for unit-test config"]
+  (fn middleware [next-handler]
+    (fn handler [fileset]
+      (let [module (if unit-test "default" (get-module-name fileset false))
+            target-middleware (comp
+                               (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+                               (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+                               (builtin/sift :move {#"(.+$)" (str module "/$1")})
+                               )
+            target-handler (target-middleware next-handler)]
+        (target-handler fileset)))))
+
 
 (boot/deftask build
   "Configure and build servlet or service app"
@@ -542,7 +580,7 @@
             (comp
              (builtin/pom)
              (builtin/jar)))
-          (target :servlet servlet :verbose verbose)
+          #_(target :servlet servlet :verbose verbose)
           #_(builtin/sift :include #{(re-pattern (str mod ".*jar"))})
           #_(builtin/install)
           #_(target :verbose verbose)
@@ -590,12 +628,13 @@
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
    k keep bool "keep intermediate .clj files"
+   u unit-test bool "configure for unit testing (module = 'default')"
    v verbose bool "Print trace messages."]
   (comp
    (webxml :verbose verbose)
-   (appengine :verbose verbose)))
+   (appengine :unit-test unit-test :verbose verbose)))
 
-(boot/deftask service-app
+(boot/deftask config-app
   "generate xml config files for microservices app"
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
@@ -650,7 +689,9 @@
           (spit appengine-application-out-file appengine-application-cfg)
           (spit services-app-out-file services-app-cfg)
           (spit manifest-out-file manifest-cfg)))
-      (-> fileset (boot/add-resource workspace) boot/commit!))))
+      (-> fileset ;; (boot/new-fileset)
+          (boot/add-resource workspace)
+          boot/commit!))))
 
 (boot/deftask deploy
   "Installs a new version of the application onto the server, as the default version for end users."
@@ -820,6 +861,7 @@
             jar-name (.getName jar-jfile)
             target-middleware (comp
                                (builtin/install :file jar-path)
+                               (builtin/sift :to-source #{(re-pattern (str ".*META-INF.*"))})
                                (builtin/sift :to-source #{(re-pattern (str ".*" jar-name))}))
             target-handler (target-middleware next-handler)]
         (target-handler fileset)))))
@@ -1009,14 +1051,15 @@
    v verbose bool "verbose"]
   (fn middleware [next-handler]
     (fn handler [fileset]
-      (let [dir (or dir (get-target-dir fileset servlet))
-            _ (println "TARGET DIR: " dir)
+      (let [target-dir (get-target-dir fileset servlet)
+            target-dir (if dir (str dir "/" target-dir) target-dir)
+            _ (println "TARGET DIR: " target-dir)
             target-middleware (comp (builtin/watch)
                                     (builtin/notify :audible true)
                                     (builtin/sift :move {#"(.*\.clj$)" (str classes-dir "/$1")})
                                     (if servlet
                                       (target :no-clean true :servlet servlet)
-                                      (target :no-clean true :servlet servlet :dir dir)))
+                                      (target :no-clean true :servlet servlet :dir target-dir)))
             target-handler (target-middleware next-handler)]
         (target-handler fileset)))))
 
@@ -1032,6 +1075,7 @@
    n gen-reloader-ns NS sym "ns for gen-reloader"
    r reloader-impl-ns NS sym "ns for reloader"
    s servlet bool "build as servlet"
+   u unit-test bool "configure for unit testing"
    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
    v verbose bool "Print trace messages."]
   (let [workspace (boot/tmp-dir!)
@@ -1059,7 +1103,8 @@
                                    (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
                                    {})
 
-             module (if-let [module (-> boot-config-edn-map :module :name)]
+             module (get-module-name fileset false)
+             #_(if-let [module (-> boot-config-edn-map :module :name)]
                       module
                       (let [appengine-config-edn-files
                             (->> (boot/fileset-diff @prev-pre fileset)
@@ -1077,8 +1122,9 @@
                             appengine-config-edn-map
                             (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
                         (-> appengine-config-edn-map :module :name)))
+
+             module (if unit-test "./" (get-module-name fileset false))
              ]
-         (println "MODULE: " module)
 
          (if (:reloader boot-config-edn-map)
            fileset
@@ -1089,9 +1135,10 @@
                    m (-> boot-config-edn-map (assoc-in [:reloader]
                                                        {:ns reloader-impl-ns
                                                         :name "reloader"
+                                                        :module module
                                                         :display {:name "Clojure reload filter"}
-                                                        :urls (if (empty? urls) [{:url "/*"}]
-                                                                  (vec urls))
+                                                        ;; :urls (if (empty? urls) [{:url "/*"}]
+                                                        ;;           (vec urls))
                                                         :desc {:text "Clojure reload filter"}}))
                    boot-config-edn-s (with-out-str (pp/pprint m))
                    boot-config-edn-out-file (io/file workspace
@@ -1103,7 +1150,7 @@
 
              (let [reloader-impl-content (stencil/render-file "migae/templates/reloader-impl.mustache"
                                                               {:reloader-ns reloader-impl-ns
-                                                               :module (or module "./")})
+                                                               :module module})
 
                    gen-reloader-content (stencil/render-file "migae/templates/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
@@ -1140,6 +1187,7 @@
 (boot/deftask run
   "Run devappserver"
   [;; DevAppServerMain.java
+   u unit-test bool "run in unit-testing config"
    _ sdk-server VAL str "--server"
    _ http-address VAL str "The address of the interface on the local machine to bind to (or 0.0.0.0 for all interfaces).  Default: 127.0.0.1"
    _ http-port VAL int "The port number to bind to on the local machine. Default: 8080"
@@ -1191,10 +1239,11 @@
           ;; _ (println "ARGS: " args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          target-dir (if servlet "target"
-                         (if (-> appengine-config-map :services)
-                           "target/default"
-                           (str "target/" (-> appengine-config-map :module :name))))
+          target-dir (if unit-test "target/default" "target") ;; (get-target-dir fileset servlet))
+          #_(if servlet "target"
+                                    (if (-> appengine-config-map :services)
+                                      "target/default"
+                                      (str "target/" (-> appengine-config-map :module :name))))
 
           checkout-vec (-> (boot/get-env) :checkouts)
           cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
@@ -1255,10 +1304,10 @@
   {:servlets
    (vec (flatten (for [config (:servlets configs)]
           (let [urls (into [] (for [url (:urls config)]
-                                {:url (str url)}))
+                                {:path (str url)}))
                 ns (if (:ns config) (:ns config) (:class config)) ]
             (merge config {:urls urls
-                           :ns ns})))))})
+                           :servlet {:ns ns}})))))})
 
 (boot/deftask servlets
   "generate servlets class files"
@@ -1381,32 +1430,57 @@
         odir (if dir dir web-inf-dir)]
     ;; (println "ODIR: " odir)
     (boot/with-pre-wrap fileset
-      (let [boot-config-edn-fs (->> (boot/fileset-diff @prev-pre fileset)
-                                boot/input-files
-                                (boot/by-re [(re-pattern (str boot-config-edn "$"))]))]
-            ;; (boot/by-name [boot-config-edn]))]
-        (if (> (count boot-config-edn-fs) 1) (throw (Exception. "only one _boot_config.edn file allowed")))
-        (if (= (count boot-config-edn-fs) 0) (throw (Exception. "_boot_config.edn file not found")))
+       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                             0 (do (if verbose (util/info (str "Creating " boot-config-edn "\n")))
+                                   (io/file boot-config-edn)) ;; this creates a java.io.File
+                             1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                             (throw (Exception.
+                                     (str "only one " boot-config-edn " file allowed; found "
+                                          (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})
+             path     (boot/tmp-path boot-config-edn-f)
+             in-file  (boot/tmp-file boot-config-edn-f)
+             out-file (io/file workspace path)
 
-        (let [boot-config-edn-f (first boot-config-edn-fs)
-              web-xml (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
-              path     (boot/tmp-path boot-config-edn-f)
-              in-file  (boot/tmp-file boot-config-edn-f)
-              out-file (io/file workspace path)]
-          (let [content (stencil/render-file
-                         "migae/templates/xml.web.mustache"
-                         web-xml)]
-            (let [;;tmp-dir (boot/tmp-dir!)
-                  xml-out-path (str odir "/web.xml")
-                  xml-out-file (doto (io/file workspace xml-out-path) io/make-parents)
-                  ;; reloader (doto (io/file tmp-dir "foobar.xml") io/make-parents)
-                  ]
-           ;; web.xml always
-           ;; (if (.exists reloader)
-           ;;   nop
-           ;;   create empty reloader
-              (if verbose (util/info "Configuring web.xml\n"))
-              (spit xml-out-file content)))))
+             webapp-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                        boot/input-files
+                                        (boot/by-re [(re-pattern (str webapp-edn "$"))]))
+             webapp-edn-f (condp = (count webapp-edn-files)
+                            0 (throw (Exception. (str "Cannot find " webapp-edn " file.")))
+                            1 (first webapp-edn-files)
+                            (throw (Exception.
+                                    (str "only one " webapp-edn " file allowed; found "
+                                         (count webapp-edn-files)))))
+             webapp-edn-map (-> (boot/tmp-file webapp-edn-f) slurp read-string)
+
+             ;; inject webapp config map into master config map
+             master-config (merge boot-config-edn-map webapp-edn-map)
+             ;; _ (println "master config: " master-config)
+
+             content (stencil/render-file
+                      "migae/templates/xml.web.mustache"
+                      master-config)
+             ;; _ (println "web.xml content: " content)
+
+             ;; step 3: create new master config file
+             boot-config-edn-out-file (io/file workspace (boot/tmp-path boot-config-edn-f))
+
+             xml-out-path (str odir "/web.xml")
+             xml-out-file (doto (io/file workspace xml-out-path) io/make-parents)]
+
+         ;; web.xml always
+         ;; (if (.exists reloader)
+         ;;   nop
+         ;;   create empty reloader
+         (if verbose (util/info "Configuring web.xml\n"))
+         (io/make-parents boot-config-edn-out-file)
+         (spit boot-config-edn-out-file master-config)
+         (spit xml-out-file content))
       (-> fileset (boot/add-resource workspace) boot/commit!))))
 
 
