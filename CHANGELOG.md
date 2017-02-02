@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - :gae map in build.boot reorganized (BREAKING)
 - move :module from :gae in build.boot to appengine.edn
 - remove support for servlet apps, only service-based apps allowed
+- logging task: --log replaced by --log4j; default is jul
+_ add jul.edn, log4j.edn
+- add :jul, :log4j entries in servlets.edn
+- task webxml renamed to config-service
+- task earxml renamed to config-app
 
 ## [0.1.0]
 ### Added
