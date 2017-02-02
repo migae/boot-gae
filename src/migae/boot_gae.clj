@@ -1093,11 +1093,12 @@
   "watch etc. for gae project"
   [d dir DIR str "target dir"
    s servlet bool "servlet"
+   u unit-test bool "monitor unit test config"
    v verbose bool "verbose"]
   (fn middleware [next-handler]
     (fn handler [fileset]
       (let [target-dir (get-target-dir fileset servlet)
-            target-dir (if dir (str dir "/" target-dir) target-dir)
+            target-dir (if unit-test "target/default" (if dir (str dir "/" target-dir) target-dir))
             _ (println "TARGET DIR: " target-dir)
             target-middleware (comp (builtin/watch)
                                     (builtin/notify :audible true)
