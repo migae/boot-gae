@@ -416,7 +416,7 @@
          ;;(println "master config: " master-config)
          ;;(println "appengine-config-map 2: " appengine-config-map)
          (let [content (stencil/render-file
-                        "migae/templates/xml.appengine-web.mustache"
+                        "migae/boot_gae/xml.appengine-web.mustache"
                         appengine-config-map)]
            ;;(if verbose (println content))
            (if verbose (util/info "Configuring appengine-web.xml\n"))
@@ -661,17 +661,17 @@
             ;; in-file  (boot/tmp-file appengine-config-edn-f)
             ;; out-file (io/file workspace path)
             appengine-application-cfg (stencil/render-file
-                                       "migae/templates/appengine-application.mustache"
+                                       "migae/boot_gae/appengine-application.mustache"
                                        appengine-cfg)
             services-app-cfg (stencil/render-file
-                             "migae/templates/services-app.mustache"
+                             "migae/boot_gae/services-app.mustache"
                              (-> appengine-cfg
                                  (assoc-in [:services]
                                            (conj (seq (:services appengine-cfg))
                                                  {:name "default"}))))
 
             manifest-cfg (stencil/render-file
-                          "migae/templates/MANIFEST.MF.mustache"
+                          "migae/boot_gae/MANIFEST.MF.mustache"
                           appengine-cfg)]
         (if verbose
           (do (println appengine-application-cfg)
@@ -822,7 +822,7 @@
                      (spit boot-config-edn-out-file boot-config-edn-s))
 
                    ;; step 2: gen filters
-                   (let [gen-filters-content (stencil/render-file "migae/templates/gen-filters.mustache"
+                   (let [gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
                                                                    (assoc filter-configs
                                                                           :gen-filters-ns
                                                                           gen-filters-ns))
@@ -1021,63 +1021,55 @@
   ;; (print-task "logging" *opts*)
   (fn middleware [next-handler]
     (fn handler [fileset]
+      (if verbose (util/info (format "Configuring logging for %s\n" (if jul "jul" "log4j"))))
       (let [workspace (boot/tmp-dir!)
             log4j-edn-files (->> fileset
                                  boot/input-files
                                  (boot/by-re [(re-pattern (str log4j-edn "$"))]))
             log4j-edn-f (condp = (count log4j-edn-files)
-                          0 (throw (Exception. (str appengine-edn " file not found")))
+                          0 (throw (Exception. (str log4j-edn " file not found")))
                           1 (first log4j-edn-files)
                           (throw (Exception.
-                                  (str "Only one " appengine-edn " file allowed; found "
+                                  (str "Only one " log4j-edn " file allowed; found "
                                        (count log4j-edn-files)))))
             log4j-cfg (-> (boot/tmp-file log4j-edn-f) slurp read-string)
 
             jul-edn-files (->> fileset
-                                 boot/input-files
-                                 (boot/by-re [(re-pattern (str jul-edn "$"))]))
+                               boot/input-files
+                               (boot/by-re [(re-pattern (str jul-edn "$"))]))
             jul-edn-f (condp = (count jul-edn-files)
-                          0 (throw (Exception. (str appengine-edn " file not found")))
-                          1 (first jul-edn-files)
-                          (throw (Exception.
-                                  (str "Only one " appengine-edn " file allowed; found "
-                                       (count jul-edn-files)))))
+                        0 (throw (Exception. (str jul-edn " file not found")))
+                        1 (first jul-edn-files)
+                        (throw (Exception.
+                                (str "Only one " jul-edn " file allowed; found "
+                                     (count jul-edn-files)))))
             jul-cfg (-> (boot/tmp-file jul-edn-f) slurp read-string)
 
             boot-config-edn-files (->> fileset
                                        boot/input-files
                                        (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
-
-             boot-config-edn-f (condp = (count boot-config-edn-files)
-                                 0 (throw (Exception. (str boot-config-edn " file not found")))
-                                 ;; 0 (do (util/info (str "Creating " boot-config-edn "\n"))
-                                 ;;       (io/file boot-config-edn)) ;; this creates a java.io.File
-                                 1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
-                                 (throw (Exception.
-                                         (str "only one _boot_config.edn file allowed, found "
-                                              (count boot-config-edn-files)))))
-             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
-                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
-                                   {})
+            boot-config-edn-f (condp = (count boot-config-edn-files)
+                                0 (throw (Exception. (str boot-config-edn " file not found")))
+                                ;; 0 (do (util/info (str "Creating " boot-config-edn "\n"))
+                                ;;       (io/file boot-config-edn)) ;; this creates a java.io.File
+                                1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                                (throw (Exception.
+                                        (str "Only one " boot-config-edn " file allowed, found "
+                                             (count boot-config-edn-files)))))
+            boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                  (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                  {})
 
             content (stencil/render-file
                      (if jul
-                       "migae/templates/logging.properties.mustache"
-                       "migae/templates/log4j.properties.mustache")
+                       "migae/boot_gae/logging.properties.mustache"
+                       "migae/boot_gae/log4j.properties.mustache")
                      (merge boot-config-edn-map (if jul jul-cfg log4j-cfg)))
 
-            odir (if odir odir
-                     (if jul web-inf-dir classes-dir))
-            ;; (condp = log
-            ;;   :jul web-inf-dir
-            ;;   :log4j classes-dir
-            ;;   nil web-inf-dir
-            ;;   (throw (IllegalArgumentException. (str "Unrecognized :log value: " log)))))
+            odir (if odir odir (if jul web-inf-dir classes-dir))
+
             out-path (if jul "logging.properties" "log4j.properties")
-            #_(condp = log
-                :log4j "log4j.properties"
-                :jul "logging.properties"
-                nil  "logging.properties")
+
             mv-arg {(re-pattern out-path) (str odir "/$1")}
 
             target-middleware identity
@@ -1085,9 +1077,8 @@
 
             out-file (doto (io/file workspace (str odir "/" out-path)) io/make-parents)]
 
-         (spit out-file content)
-         (if verbose (util/info "Configuring logging...\n"))
-         (target-handler (-> fileset (boot/add-resource workspace) boot/commit!))))))
+        (spit out-file content)
+        (target-handler (-> fileset (boot/add-resource workspace) boot/commit!))))))
 
 (boot/deftask monitor
   "watch etc. for gae project"
@@ -1194,11 +1185,11 @@
                (io/make-parents boot-config-edn-out-file)
                (spit boot-config-edn-out-file boot-config-edn-s))
 
-             (let [reloader-impl-content (stencil/render-file "migae/templates/reloader-impl.mustache"
+             (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
                                                               {:reloader-ns reloader-impl-ns
                                                                :module module})
 
-                   gen-reloader-content (stencil/render-file "migae/templates/gen-reloader.mustache"
+                   gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
                                                               :reloader-impl-ns reloader-impl-ns})
                    ;; _ (if verbose (println "impl: " reloader-impl-path))
@@ -1417,7 +1408,7 @@
                                                          (boot/tmp-path boot-config-edn-f)
                                                          boot-config-edn-f))
                      ;; step 4: create servlet generator
-                     gen-servlets-content (stencil/render-file "migae/templates/gen-servlets.mustache"
+                     gen-servlets-content (stencil/render-file "migae/boot_gae/gen-servlets.mustache"
                                                                (assoc servlets-config-map
                                                                       :gen-servlets-ns
                                                                       gen-servlets-ns))
@@ -1509,9 +1500,8 @@
              ;; _ (println "master config: " master-config)
 
              content (stencil/render-file
-                      "migae/templates/xml.web.mustache"
+                      "migae/boot_gae/xml.web.mustache"
                       master-config)
-             ;; _ (println "web.xml content: " content)
 
              ;; step 3: create new master config file
              boot-config-edn-out-file (io/file workspace (boot/tmp-path boot-config-edn-f))
@@ -1528,7 +1518,6 @@
          (spit boot-config-edn-out-file master-config)
          (spit xml-out-file content))
       (-> fileset (boot/add-resource workspace) boot/commit!))))
-
 
 ;; (boot/deftask mods
 ;;   "modules"
