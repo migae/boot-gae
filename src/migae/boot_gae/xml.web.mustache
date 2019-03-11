@@ -22,7 +22,7 @@
   </filter-mapping>
   <filter>
     <filter-name>reloader</filter-name>
-    <filter-class>{{ns}}</filter-class>
+    <filter-class>{{class}}</filter-class>
   </filter>
   {{/reloader}}
 
@@ -30,7 +30,7 @@
   {{#filters}}
   {{#urls}}
   <filter-mapping>
-    <url-pattern>{{url}}</url-pattern>
+    <url-pattern>{{path}}</url-pattern>
     <filter-name>{{name}}</filter-name>
   </filter-mapping>
   {{/urls}}

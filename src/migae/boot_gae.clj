@@ -1118,11 +1118,10 @@
   (let [workspace (boot/tmp-dir!)
         prev-pre (atom nil)
         web-inf (if web-inf web-inf web-inf-dir)
-
         gen-reloader-ns (if gen-reloader-ns (symbol gen-reloader-ns) (gensym "reloadergen"))
         gen-reloader-path (str gen-reloader-ns ".clj")
-        reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) "reloader")
-        reloader-impl-path (str reloader-impl-ns ".clj")]
+        ;;reloader-impl-path (str reloader-impl-ns ".clj")
+        ]
     (comp
      (boot/with-pre-wrap [fileset]
        (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
@@ -1141,6 +1140,15 @@
                                    {})
 
              module (get-module-name fileset false)
+             reloader-impl-path (str (if reloader-impl-ns
+                                       reloader-impl-ns
+                                       (str
+                                        (str/replace module #"-" "_")
+                                        "/reloader.clj")))
+             reloader-name (str (str/replace module #"-" "_") ".reloader")
+             reloader-impl-ns (if reloader-impl-ns (symbol reloader-impl-ns) (symbol (str module ".reloader")))
+
+             ;;module (if unit-test "./" (get-module-name fileset false))
              #_(if-let [module (-> boot-config-edn-map :module :name)]
                       module
                       (let [appengine-config-edn-files
@@ -1160,7 +1168,6 @@
                             (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
                         (-> appengine-config-edn-map :module :name)))
 
-             module (if unit-test "./" (get-module-name fileset false))
              ]
 
          (if (:reloader boot-config-edn-map)
@@ -1172,7 +1179,8 @@
                    m (-> boot-config-edn-map (assoc-in [:reloader]
                                                        {:ns reloader-impl-ns
                                                         :name "reloader"
-                                                        :module module
+                                                        :class (str (str/replace module #"-" "_") ".reloader")
+                                                        :module (str/replace module #"-" "_")
                                                         :display {:name "Clojure reload filter"}
                                                         ;; :urls (if (empty? urls) [{:url "/*"}]
                                                         ;;           (vec urls))
@@ -1191,8 +1199,11 @@
 
                    gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
-                                                              :reloader-impl-ns reloader-impl-ns})
-                   ;; _ (if verbose (println "impl: " reloader-impl-path))
+                                                              :reloader-impl-ns reloader-impl-ns
+                                                              :reloader-name reloader-name})
+                   _ (if verbose (println "impl ns: " reloader-impl-ns))
+                   _ (if verbose (println "class name: " reloader-name))
+                   _ (if verbose (println "impl path: " reloader-impl-path))
                    ;; _ (if verbose (println "impl: " reloader-impl-content))
                    ;; _ (if verbose (println "gen: " gen-reloader-path))
                    ;; _ (if verbose (println "gen: " gen-reloader-content))
