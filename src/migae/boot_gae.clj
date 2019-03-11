@@ -1267,14 +1267,134 @@
          identity)
      )))
 
+;; (boot/deftask run
+;;   "Run devappserver"
+;;   [;; DevAppServerMain.java
+;;    u unit-test bool "run in unit-testing config"
+;;    _ sdk-server VAL str "--server"
+;;    _ http-address VAL str "The address of the interface on the local machine to bind to (or 0.0.0.0 for all interfaces).  Default: 127.0.0.1"
+;;    _ http-port VAL int "The port number to bind to on the local machine. Default: 8080"
+;;    _ disable-update-check bool "Disable the check for newer SDK versions. Default: true"
+;;    _ generated-dir DIR str "Set the directory where generated files are created."
+;;    ;; GENERATED_DIR_PROPERTY = "appengine.generated.dir";
+;;    _ default-gcs-bucket VAL str  "Set the default Google Cloud Storage bucket name."
+;;    _ instance-port bool "--instance_port"
+;;    _ disable-filesapi-warning bool "-disable_filesapi_warning"
+;;    _ enable-filesapi bool "--enable_filesapi"
+
+;;    ;; SharedMain.java
+;;    _ sdk-root PATH str "--sdk_root"
+;;    _ disable-restricted-check bool "--disable_restricted_check"
+;;    _ external-resource-dir VAL str "--external_resource_dir"
+;;    _ allow-remote-shutdown bool "--allow_remote_shutdown"
+;;    a java-agent bool "use javaagaent (default: false).\n\t\tCAVEAT: setting to true may result in a dramatic increase in servlet startup time; setting false removes some security checks" ;; --no_java_agent
+
+;;    ;; Kickstart.java
+;;    _ address VAL str "address; default: localhost"
+;;    _ generate-war bool "--generate_war"
+;;    _ generated-war-dir PATH str "Set the directory where generated files are created."
+;;    _ jvm-flags FLAG #{str} "--jvm_flags"
+;;    _ start-on-first-thread bool "--startOnFirstThread"
+;;    _ enable-jacoco bool "--enable_jacoco"
+;;    _ jacoco-agent-jar VAL str"--jacoco_agent_jar"
+;;    _ jacoco-agent-args VAL str"--jacoco_agent_args"
+;;    _ jacoco-exec VAL str "--jacoco_exec"
+
+;;    _ modules MODULES edn "modules map"
+
+;;    s servlet bool "servlet app DEPRECATED"
+;;    v verbose bool "verbose"]
+
+;;   (boot/with-pre-wrap [fileset]
+;;     (let [appengine-edn-fs (->> fileset
+;;                                 boot/input-files
+;;                                 (boot/by-name [appengine-edn]))
+
+;;           appengine-edn-f (condp = (count appengine-edn-fs)
+;;                             0 (throw (Exception. appengine-edn " file not found"))
+;;                             1 (first appengine-edn-fs)
+;;                             (throw (Exception. (str "Only one " appengine-edn " file allowed"))))
+
+;;           appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)
+
+
+;;           ;; (println "*OPTS*: " *opts*)
+;;           args (->args *opts*)
+;;           ;; _ (println "ARGS: " args)
+;;           ;; jargs (into-array String (conj jargs "build/exploded-app"))
+
+;;           target-dir (if unit-test "target/default" "target") ;; (get-target-dir fileset servlet))
+;;           #_(if servlet "target"
+;;                                     (if (-> appengine-config-map :services)
+;;                                       "target/default"
+;;                                       (str "target/" (-> appengine-config-map :module :name))))
+
+;;           checkout-vec (-> (boot/get-env) :checkouts)
+;;           cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
+;;           default-mod (filter #(or (:default %) (not (:module %))) cos)
+;;           _ (if (> (count default-mod) 1)
+;;               (throw (Exception. "Only one default module allowed" (count default-mod))))
+
+
+;;           mod-ports (remove nil?
+;;                             (into [] ;; (for [[mod port] (-> (boot/get-env) :gae :modules)]
+;;                                   (map #(if (:module %)
+;;                                           (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
+;;                                                (:module %)
+;;                                                ".port="
+;;                                                (str (:port %)))
+;;                                           nil)
+;;                                        cos)))
+;;                             ;; modules))
+
+;;           _ (println "MOD PORTS: " mod-ports)
+
+;;           http-port (or http-port (if-let [p (:port (first default-mod))] p nil))
+;;           _ (println "HTTP-PORT: " http-port)
+
+;;           jvm-flags (for [flag jvm-flags] (str "--jvm_flag=" flag))
+;;           jargs (concat ["com.google.appengine.tools.development.DevAppServerMain"
+;;                          (str "--sdk_root=" (:sdk-root config-map))
+;;                          "--jvm_flag=-Dappengine.fullscan=1"]
+;;                         mod-ports
+;;                         jvm-flags
+;;                         (if disable-restricted-check ["--disable_restricted_check"])
+;;                         ;;(if (not java-agent) ["--no_java_agent"])
+;;                         (if http-port [(str "--port=" http-port)])
+;;                         (if http-address [(str "--address=" http-address)])
+;;                         ;; KickStarter gets the abs path only for the last arg (the target dir)
+;;                         ;; to support multiple services we need to call (.getAbsolutePath (io/file dir))
+;;                         [target-dir])
+;;           jargs (into-array String jargs)]
+
+;;       (if verbose
+;;         (do (println "jargs:")
+;;             (doseq [a jargs] (println "\t" a))))
+;;       (validate-tools-api-jar)
+;;       ;; (println "system classpath: " (System/getenv "java.class.path"))
+
+;;       (let [class-loader (-> (Thread/currentThread) (.getContextClassLoader))
+;;             cl (.getParent class-loader)
+;;             ;; _ (println "class-loader: " class-loader (type class-loader))
+;;             kick-start (Class/forName "com.google.appengine.tools.KickStart" true class-loader)
+;;             ]
+;;         ;; (println "kick-start: " kick-start (type kick-start))
+;;         (def method (first (filter #(= (. % getName) "main") (. kick-start getMethods))))
+;;         ;;(let [parms (.getParameterTypes method)] (println "param types: " parms))
+;;         (def invoke-args (into-array Object [jargs]))
+;;         (. method invoke nil invoke-args)
+;;         ))
+;;     fileset))
+
 (boot/deftask run
-  "Run devappserver"
+  "Run cloud devserver"
   [;; DevAppServerMain.java
+   ;;w wardirs WARDIRS [str] "wardirs"
    u unit-test bool "run in unit-testing config"
    _ sdk-server VAL str "--server"
    _ http-address VAL str "The address of the interface on the local machine to bind to (or 0.0.0.0 for all interfaces).  Default: 127.0.0.1"
    _ http-port VAL int "The port number to bind to on the local machine. Default: 8080"
-   _ disable-update-check bool "Disable the check for newer SDK versions. Default: true"
+
    _ generated-dir DIR str "Set the directory where generated files are created."
    ;; GENERATED_DIR_PROPERTY = "appengine.generated.dir";
    _ default-gcs-bucket VAL str  "Set the default Google Cloud Storage bucket name."
@@ -1289,7 +1409,7 @@
    _ allow-remote-shutdown bool "--allow_remote_shutdown"
    a java-agent bool "use javaagaent (default: false).\n\t\tCAVEAT: setting to true may result in a dramatic increase in servlet startup time; setting false removes some security checks" ;; --no_java_agent
 
-   ;; Kickstart.java
+   ;; Kickstart.java, DevAppServerMain.java
    _ generate-war bool "--generate_war"
    _ generated-war-dir PATH str "Set the directory where generated files are created."
    _ jvm-flags FLAG #{str} "--jvm_flags"
@@ -1299,30 +1419,18 @@
    _ jacoco-agent-args VAL str"--jacoco_agent_args"
    _ jacoco-exec VAL str "--jacoco_exec"
 
-   _ modules MODULES edn "modules map"
+   _ services SERVICES edn "services map, keys :service, :port"
 
    s servlet bool "servlet app DEPRECATED"
    v verbose bool "verbose"]
 
   (boot/with-pre-wrap [fileset]
-    (let [appengine-edn-fs (->> fileset
-                                boot/input-files
-                                (boot/by-name [appengine-edn]))
-
-          appengine-edn-f (condp = (count appengine-edn-fs)
-                            0 (throw (Exception. appengine-edn " file not found"))
-                            1 (first appengine-edn-fs)
-                            (throw (Exception. (str "Only one " appengine-edn " file allowed"))))
-
-          appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)
-
-
-          ;; (println "*OPTS*: " *opts*)
+    (let [;; (println "*OPTS*: " *opts*)
           args (->args *opts*)
           ;; _ (println "ARGS: " args)
           ;; jargs (into-array String (conj jargs "build/exploded-app"))
 
-          target-dir (if unit-test "target/default" "target") ;; (get-target-dir fileset servlet))
+          ;;target-dir (if unit-test "target/default" "target") ;; (get-target-dir fileset servlet))
           #_(if servlet "target"
                                     (if (-> appengine-config-map :services)
                                       "target/default"
@@ -1334,33 +1442,42 @@
           _ (if (> (count default-mod) 1)
               (throw (Exception. "Only one default module allowed" (count default-mod))))
 
-
-          mod-ports (remove nil?
-                            (into [] ;; (for [[mod port] (-> (boot/get-env) :gae :modules)]
-                                  (map #(if (:module %)
-                                          (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
-                                               (:module %)
-                                               ".port="
-                                               (str (:port %)))
-                                          nil)
-                                       cos)))
+          ;; FIXME: get service name from config/appengine.edn for each service?
+          service-ports (remove nil?
+                            (into [] (map #(if (:name %)
+                                             (str "--jvm_flag=-Dcom.google.appengine.devappserver_module."
+                                                  (:name %)
+                                                  ".port="
+                                                  (str (:port %)))
+                                             nil)
+                                          services)))
                             ;; modules))
 
-          _ (println "MOD PORTS: " mod-ports)
+          wardirs (remove nil?
+                          (into [] (map #(if (:wardir %)
+                                           (.getAbsolutePath (io/file (:wardir %)))
+                                           nil)
+                                          services)))
+
+          _ (println "WARDIRS: " wardirs)
 
           http-port (or http-port (if-let [p (:port (first default-mod))] p nil))
           _ (println "HTTP-PORT: " http-port)
 
           jvm-flags (for [flag jvm-flags] (str "--jvm_flag=" flag))
+          ;;war-dirs (for [wardir wardirs] (.getAbsolutePath (io/file wardir)))
+
           jargs (concat ["com.google.appengine.tools.development.DevAppServerMain"
-                         (str "--sdk_root=" (:sdk-root config-map))]
-                        mod-ports
+                         (str "--sdk_root=" (:sdk-root config-map))
+                         ;; "--jvm_flag=-Dappengine.fullscan.seconds=1"
+                         ]
+                        service-ports
                         jvm-flags
                         (if disable-restricted-check ["--disable_restricted_check"])
-                        (if (not java-agent) ["--no_java_agent"])
+                        ;; (if (not java-agent) ["--no_java_agent"])
                         (if http-port [(str "--port=" http-port)])
                         (if http-address [(str "--address=" http-address)])
-                        [target-dir])
+                        wardirs)
           jargs (into-array String jargs)]
 
       (if verbose
