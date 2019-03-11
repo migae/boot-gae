@@ -6,8 +6,7 @@ programming - edit your Clojure source and see the result immediately,
 by refreshing your webpage, not restarting your app. Replaces and
 improves on the maven/gradle build systems provided by Google.
 
-WARNING: GAE Standard Environment does not support Java 1.8 or above.
-Be *sure* to build your app with Java 1.7!
+WARNING: GAE Standard Environment no longer supports Java 1.7; use Java 1.8.
 
 Table of Contents
 
