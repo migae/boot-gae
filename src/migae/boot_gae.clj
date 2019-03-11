@@ -770,84 +770,118 @@
         (target-handler fileset)))))
 
 
-(boot/deftask filters
-  "generate filters class files"
+(defn- normalize-filter-configs
+  [configs]
+  {:filters
+   (vec (flatten (for [config (:filters configs)]
+          (let [urls (into [] (for [url (:urls config)]
+                                {:path (str url)}))
+                ns (if (:ns config) (:ns config) (:class config)) ]
+            (merge config {:urls urls
+                           :filter {:ns ns}})))))})
 
-  [k keep bool "keep intermediate .clj files"
-   n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
-   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
-   v verbose bool "Print trace messages."]
-  (let [edn-tmp-dir (boot/tmp-dir!)
-        prev-pre (atom nil)
-        ;; config-sym (if config-sym config-sym 'filters/config)
-        ;; config-ns (symbol (namespace config-sym))
-        web-inf (if web-inf web-inf web-inf-dir)
-        filters-edn "filters.edn"
-        gen-filters-tmp-dir (boot/tmp-dir!)
-        gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
-        gen-filters-path (str gen-filters-ns ".clj")]
-    (comp
-     (boot/with-pre-wrap [fileset]
-       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
-                                    boot/input-files
-                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))]
-                    ;; (boot/by-name [boot-config-edn]))]
-         (if (> (count boot-config-edn-files) 1)
-           (throw (Exception. "only one _boot_config.edn file allowed")))
-         (if (= (count boot-config-edn-files) 0)
-           (throw (Exception. "cannot find _boot_config.edn")))
+;; (boot/deftask filters
+;;   "generate filters class files"
 
-         (let [boot-config-edn-f (first boot-config-edn-files)
-               boot-config-edn-map (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
-           (if (:filters boot-config-edn-map)
-             fileset
-             (do
-               ;; step 0: read the edn files
-               (let [filters-edn-files (->> (boot/input-files fileset)
-                                            (boot/by-name [filters-edn]))]
-                 (if (> (count filters-edn-files) 1)
-                   (throw (Exception. "only one filters.edn file allowed")))
-                 (if (= (count filters-edn-files) 0)
-                   (throw (Exception. "cannot find filters.edn")))
-                 (let [edn-filters-f (first filters-edn-files)
-                       filter-configs (-> (boot/tmp-file edn-filters-f) slurp read-string)
-                       smap (-> boot-config-edn-map (assoc-in [:filters]
-                                                        (:filters filter-configs)))
-                       boot-config-edn-s (with-out-str (pp/pprint smap))]
-                   ;; step 1:  inject filter config stanza to _boot_config.edn
-                   (let [path     (boot/tmp-path boot-config-edn-f)
-                         boot-config-edn-in-file  (boot/tmp-file boot-config-edn-f)
-                         boot-config-edn-out-file (io/file edn-tmp-dir path)]
-                     (io/make-parents boot-config-edn-out-file)
-                     (spit boot-config-edn-out-file boot-config-edn-s))
+;;   [k keep bool "keep intermediate .clj files"
+;;    n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
+;;    w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
+;;    v verbose bool "Print trace messages."]
+;;   (let [edn-tmp-dir (boot/tmp-dir!)
+;;         prev-pre (atom nil)
+;;         ;; config-sym (if config-sym config-sym 'filters/config)
+;;         ;; config-ns (symbol (namespace config-sym))
+;;         web-inf (if web-inf web-inf web-inf-dir)
+;;         filters-edn "filters.edn"
+;;         gen-filters-tmp-dir (boot/tmp-dir!)
+;;         gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
+;;         gen-filters-path (str gen-filters-ns ".clj")]
+;;     (comp
+;;      (boot/with-pre-wrap [fileset]
+;;        (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+;;                                     boot/input-files
+;;                                     (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+;;              boot-config-edn-f (condp = (count boot-config-edn-files)
+;;                              0 (do (if verbose (util/info (str "Creating " boot-config-edn "\n")))
+;;                                    (io/file boot-config-edn)) ;; this creates a java.io.File
+;;                              1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+;;                              (throw (Exception.
+;;                                      (str "only one " boot-config-edn " file allowed; found "
+;;                                           (count boot-config-edn-files)))))
+;;              boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+;;                                    (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+;;                                    {})]
 
-                   ;; step 2: gen filters
-                   (let [gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
-                                                                   (assoc filter-configs
-                                                                          :gen-filters-ns
-                                                                          gen-filters-ns))
-                         gen-filters-out-file (doto
-                                                   (io/file gen-filters-tmp-dir gen-filters-path)
-                                                 io/make-parents)]
-                     (spit gen-filters-out-file gen-filters-content))))))))
-       (util/info "Configuring filters...\n")
+;;          ;; (if (> (count boot-config-edn-files) 1)
+;;          ;;   (throw (Exception. "only one _boot_config.edn file allowed")))
+;;          ;; (if (= (count boot-config-edn-files) 0)
+;;          ;;   (throw (Exception. "cannot find _boot_config.edn")))
 
-       ;; step 3: commit files to fileset
-       (reset! prev-pre
-               (-> fileset
-                   (boot/add-source edn-tmp-dir)
-                   (boot/add-source gen-filters-tmp-dir)
-                   boot/commit!)))
-     (builtin/aot :namespace #{gen-filters-ns}) ;; :dir (str web-inf "/classes"))
-     (if keep identity
-       (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
-                     :invert true))
-     (if keep
-       (comp
-        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
-        (builtin/sift :to-asset #{(re-pattern gen-filters-path)}))
-       identity)
-     )))
+;;          ;; (let [boot-config-edn-f (first boot-config-edn-files)
+;;          ;;       boot-config-edn-map (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
+;;            (if (:filters boot-config-edn-map)
+;;              fileset
+;;              (do
+;;                ;; step 0: read the edn files
+;;                (let [filters-edn-files (->> (boot/input-files fileset)
+;;                                              (boot/by-name [filters-edn]))
+;;                      filters-edn-f (condp = (count filters-edn-files)
+;;                                         0 (throw (Exception. (str "Cannot find " filters-edn " file.")))
+;;                                         1 (first filters-edn-files)
+;;                                         ;; > 1
+;;                                         (throw (Exception.
+;;                                                 (str "Only one " filters-edn "file allowed; found "
+;;                                                      (count filters-edn-files)))))
+;;                      filters-edn-map (-> (boot/tmp-file filters-edn-f) slurp read-string)
+;;                      filters-config-map (normalize-filter-configs filters-edn-map)
+;;                      filters-config-map {:filters (filter #(nil? (:class %))
+;;                                                             (:filters filters-config-map))}
+
+;;                ;; (let [filters-edn-files (->> (boot/input-files fileset)
+;;                ;;                              (boot/by-name [filters-edn]))]
+;;                ;;   (if (> (count filters-edn-files) 1)
+;;                ;;     (throw (Exception. "only one filters.edn file allowed")))
+;;                  ;; (if (= (count filters-edn-files) 0)
+;;                  ;;   (throw (Exception. "cannot find filters.edn")))
+;;                  (let [edn-filters-f (first filters-edn-files)
+;;                        filter-configs (-> (boot/tmp-file edn-filters-f) slurp read-string)
+;;                        smap (-> boot-config-edn-map (assoc-in [:filters]
+;;                                                         (:filters filter-configs)))
+;;                        boot-config-edn-s (with-out-str (pp/pprint smap))]
+;;                    ;; step 1:  inject filter config stanza to _boot_config.edn
+;;                    (let [path     (boot/tmp-path boot-config-edn-f)
+;;                          boot-config-edn-in-file  (boot/tmp-file boot-config-edn-f)
+;;                          boot-config-edn-out-file (io/file edn-tmp-dir path)]
+;;                      (io/make-parents boot-config-edn-out-file)
+;;                      (spit boot-config-edn-out-file boot-config-edn-s))
+
+;;                    ;; step 2: gen filters
+;;                    (let [gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
+;;                                                                    (assoc filter-configs
+;;                                                                           :gen-filters-ns
+;;                                                                           gen-filters-ns))
+;;                          gen-filters-out-file (doto
+;;                                                    (io/file gen-filters-tmp-dir gen-filters-path)
+;;                                                  io/make-parents)]
+;;                      (spit gen-filters-out-file gen-filters-content))))))) ;;)
+;;        (util/info "Configuring filters...\n")
+
+;;        ;; step 3: commit files to fileset
+;;        (reset! prev-pre
+;;                (-> fileset
+;;                    (boot/add-source edn-tmp-dir)
+;;                    (boot/add-source gen-filters-tmp-dir)
+;;                    boot/commit!)))
+;;      (builtin/aot :namespace #{gen-filters-ns}) ;; :dir (str web-inf "/classes"))
+;;      (if keep identity
+;;        (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
+;;                      :invert true))
+;;      (if keep
+;;        (comp
+;;         (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
+;;         (builtin/sift :to-asset #{(re-pattern gen-filters-path)}))
+;;        identity)
+;;      )))
 
 (defn- install-jarfile-internal
   [jarname]
@@ -1450,6 +1484,101 @@
        (comp
         (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
         (builtin/sift :to-asset #{(re-pattern gen-servlets-path)}))
+       identity)
+     )))
+
+(boot/deftask filters
+  "generate filters class files"
+  [k keep bool "keep intermediate .clj files"
+   ;; d odir DIR str "output dir for generated class files"
+   ;; c config-sym SYM sym "namespaced symbol bound to meta-config data"
+   n gen-filters-ns NS str "namespace to generate and aot; default: 'filters"
+   w web-inf WEB-INF str "WEB-INF dir, default: WEB-INF"
+   v verbose bool "Print trace messages."]
+  (let [workspace (boot/tmp-dir!)
+        prev-pre (atom nil)
+        ;; config-sym (if config-sym config-sym 'filters/config)
+        ;; config-ns (symbol (namespace config-sym))
+        web-inf (if web-inf web-inf web-inf-dir)
+        filters-edn "filters.edn"
+        gen-filters-tmp-dir (boot/tmp-dir!)
+        gen-filters-ns (if gen-filters-ns (symbol gen-filters-ns) (gensym "filtersgen"))
+        gen-filters-path (str gen-filters-ns ".clj")]
+    (comp
+     (boot/with-pre-wrap [fileset]
+       (let [boot-config-edn-files (->> (boot/fileset-diff @prev-pre fileset)
+                                    boot/input-files
+                                    (boot/by-re [(re-pattern (str boot-config-edn "$"))]))
+             boot-config-edn-f (condp = (count boot-config-edn-files)
+                             0 (do (if verbose (util/info (str "Creating " boot-config-edn "\n")))
+                                   (io/file boot-config-edn)) ;; this creates a java.io.File
+                             1 (first boot-config-edn-files)  ;; this is a boot.tmpdir.TmpFile
+                             (throw (Exception.
+                                     (str "only one " boot-config-edn " file allowed; found "
+                                          (count boot-config-edn-files)))))
+             boot-config-edn-map (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                   (-> (boot/tmp-file boot-config-edn-f) slurp read-string)
+                                   {})]
+         ;; (println "boot-config-edn-map: " boot-config-edn-map)
+
+         (if (:filters boot-config-edn-map)
+             fileset
+             (do
+               ;; step 1: read the edn config file and construct map
+               (let [filters-edn-files (->> (boot/input-files fileset)
+                                             (boot/by-name [filters-edn]))
+                     filters-edn-f (condp = (count filters-edn-files)
+                                        0 (throw (Exception. (str "Cannot find " filters-edn " file.")))
+                                        1 (first filters-edn-files)
+                                        ;; > 1
+                                        (throw (Exception.
+                                                (str "Only one " filters-edn "file allowed; found "
+                                                     (count filters-edn-files)))))
+                     filters-edn-map (-> (boot/tmp-file filters-edn-f) slurp read-string)
+                     filters-config-map (normalize-filter-configs filters-edn-map)
+                     filters-config-map {:filters (filter #(nil? (:class %))
+                                                            (:filters filters-config-map))}
+
+                     ;; step 2: inject filters config map into master config map
+                     master-config (-> boot-config-edn-map (assoc-in [:filters]
+                                                                     (:filters filters-config-map)))
+                     master-config (with-out-str (pp/pprint master-config))
+                     ;; step 3: create new master config file
+                     boot-config-edn-out-file (io/file workspace
+                                                       (if (instance? boot.tmpdir.TmpFile boot-config-edn-f)
+                                                         (boot/tmp-path boot-config-edn-f)
+                                                         boot-config-edn-f))
+                     ;; step 4: create filter generator
+                     gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
+                                                               (assoc filters-config-map
+                                                                      :gen-filters-ns
+                                                                      gen-filters-ns))
+                     gen-filters-out-file (doto (io/file gen-filters-tmp-dir gen-filters-path)
+                                             io/make-parents)]
+                 ;; step 5: write new files
+                 (io/make-parents boot-config-edn-out-file)
+                 (spit boot-config-edn-out-file master-config)
+                 (spit gen-filters-out-file gen-filters-content)))))
+
+       (if verbose (util/info "Configuring filters...\n"))
+
+       ;; step 6: commit files to fileset
+       (reset! prev-pre
+               (-> fileset
+                   (boot/add-source workspace)
+                   (boot/add-source gen-filters-tmp-dir)
+                   boot/commit!)))
+
+     (builtin/aot :namespace #{gen-filters-ns})
+
+     (if keep
+       identity
+       (builtin/sift :include #{(re-pattern (str gen-filters-ns ".*.class"))}
+                     :invert true))
+     (if keep
+       (comp
+        (builtin/sift :to-resource #{(re-pattern boot-config-edn)})
+        (builtin/sift :to-asset #{(re-pattern gen-filters-path)}))
        identity)
      )))
 
