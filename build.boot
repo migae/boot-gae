@@ -1,15 +1,15 @@
 (def +project+ 'migae/boot-gae)
-(def +version+ "0.2.0-SNAPSHOT")
+(def +version+ "0.2.1-SNAPSHOT")
 
 (set-env!
  :source-paths #{"src"}
  :resource-paths #{"src"}
  ;; :asset-paths #{"src"}
- :repositories #(conj % ["maven-central" {:url "http://mvnrepository.com"}]
-                      ["central" "http://repo1.maven.org/maven2/"])
- :dependencies   '[[org.clojure/clojure "1.8.0" :scope "provided"]
-                   [boot/core "2.7.1" :scope "provided"]
-                   [boot/pod "2.7.1" :scope "provided"]
+ :repositories #(conj % ["maven-central" {:url "https://mvnrepository.com"}]
+                      ["central" "https://repo1.maven.org/maven2/"])
+ :dependencies   '[[org.clojure/clojure "1.10.0" :scope "provided"]
+                   [boot/core "2.8.2" :scope "provided"]
+                   [boot/pod "2.8.2" :scope "provided"]
                    [me.raynes/fs "1.4.6"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
