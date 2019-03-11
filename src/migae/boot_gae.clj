@@ -22,7 +22,7 @@
 (def boot-config-edn "_boot_config.edn")
 (def webapp-edn "webapp.edn")
 (def appengine-edn "appengine.edn")
-(def appstats-edn "appstats.edn")
+;;(def appstats-edn "appstats.edn")
 (def jul-edn "jul.edn")
 (def log4j-edn "log4j.edn")
 
@@ -446,7 +446,8 @@
 ;;           s (with-out-str (pp/pprint m))]
 ;;     (spit out-file s))))
 
-(boot/deftask appstats
+;; appstats not supported for java 8
+#_(boot/deftask appstats
   "enable GAE Appstats"
   [k keep bool "keep intermediate .clj files"
    ;; n gen-reloader-ns NS sym "ns for gen-reloader"
@@ -567,7 +568,6 @@
     ;; (println "MODULE: " mod)
     (comp (install-sdk)
           (libs :verbose verbose)
-          (appstats :verbose verbose)
           ;; (builtin/javac :options ["-source" "1.7", "-target" "1.7"])
           (if prod identity (reloader :keep keep :servlet servlet :verbose verbose))
           (filters :keep keep :verbose verbose)
