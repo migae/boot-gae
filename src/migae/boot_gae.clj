@@ -543,18 +543,18 @@
                             (boot/commit!)))))))
 
 (boot/deftask build-sift
-  [u unit-test bool "sift for unit-test config"]
+  []
+  ;; [u unit-test bool "sift for unit-test config"]
   (fn middleware [next-handler]
     (fn handler [fileset]
-      (let [module (if unit-test "default" (get-module-name fileset false))
+      (let [;; module (if unit-test "default" (get-module-name fileset false))
+            module (get-module-name fileset false)
             target-middleware (comp
                                (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
                                (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-                               (builtin/sift :move {#"(.+$)" (str module "/$1")})
                                )
             target-handler (target-middleware next-handler)]
         (target-handler fileset)))))
-
 
 (boot/deftask build
   "Configure and build servlet or service app"
@@ -1088,7 +1088,8 @@
    v verbose bool "verbose"]
   (fn middleware [next-handler]
     (fn handler [fileset]
-      (let [target-dir (get-target-dir fileset servlet)
+      (let [servlet true
+            target-dir (get-target-dir fileset servlet)
             target-dir (if unit-test "target/default" (if dir (str dir "/" target-dir) target-dir))
             _ (println "TARGET DIR: " target-dir)
             target-middleware (comp (builtin/watch)
