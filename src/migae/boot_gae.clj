@@ -31,6 +31,13 @@
   ;; (let [mod (-> (boot/get-env) :gae :module :name)]
   ;;   (str (if mod (str mod "/")) "WEB-INF")))
 
+(defn name-to-path
+  "Constructs directory structure from fully qualified artifact name:
+  \"foo-bar.baz\" becomes \"foo_bar/baz\"
+  and so on. Uses platform-specific file separators."
+  [s]
+  (-> s (str/replace "-" "_") (str/replace "." java.io.File/separator)))
+
 ;; http://stackoverflow.com/questions/2751033/clojure-program-reading-its-own-manifest-mf
 (defn manifest-map
   "Returns the mainAttributes of the manifest of the passed in class as a map."
@@ -577,11 +584,11 @@
           (appengine :verbose verbose)
           (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
           (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
-          (if servlet
-            identity
-            (comp
-             (builtin/pom)
-             (builtin/jar)))
+          ;; (if servlet
+          ;;   identity
+          ;;   (comp
+          ;;    (builtin/pom)
+          ;;    (builtin/jar)))
           #_(target :servlet servlet :verbose verbose)
           #_(builtin/sift :include #{(re-pattern (str mod ".*jar"))})
           #_(builtin/install)
@@ -776,9 +783,11 @@
    (vec (flatten (for [config (:filters configs)]
           (let [urls (into [] (for [url (:urls config)]
                                 {:path (str url)}))
-                ns (if (:ns config) (:ns config) (:class config)) ]
+                class  (str/replace (:ns config) "-" "_")]
+                ;;ns (if (:ns config) (:ns config) (:class config)) ]
             (merge config {:urls urls
-                           :filter {:ns ns}})))))})
+                           :class class
+                           :filter {:ns (:ns config)}})))))})
 
 ;; (boot/deftask filters
 ;;   "generate filters class files"
@@ -1453,11 +1462,13 @@
                                           services)))
                             ;; modules))
 
-          wardirs (remove nil?
-                          (into [] (map #(if (:wardir %)
-                                           (.getAbsolutePath (io/file (:wardir %)))
-                                           nil)
+          wardirs (if services
+                    (remove nil?
+                            (into [] (map #(if (:wardir %)
+                                             (.getAbsolutePath (io/file (:wardir %)))
+                                             nil)
                                           services)))
+                    ["target"])
 
           _ (println "WARDIRS: " wardirs)
 
@@ -1501,13 +1512,16 @@
 
 (defn- normalize-servlet-configs
   [configs]
+  ;;(println "normalizing servlet config: " configs)
   {:servlets
    (vec (flatten (for [config (:servlets configs)]
           (let [urls (into [] (for [url (:urls config)]
                                 {:path (str url)}))
+                class  (str/replace (:ns config) "-" "_")
                 ns (if (:ns config) (:ns config) (:class config)) ]
             (merge config {:urls urls
-                           :servlet {:ns ns}})))))})
+                           :class class
+                           :servlet {:ns (:ns config)}})))))})
 
 (boot/deftask servlets
   "generate servlets class files"
@@ -1558,8 +1572,9 @@
                                                      (count servlets-edn-files)))))
                      servlets-edn-map (-> (boot/tmp-file servlets-edn-f) slurp read-string)
                      servlets-config-map (normalize-servlet-configs servlets-edn-map)
-                     servlets-config-map {:servlets (filter #(nil? (:class %))
-                                                            (:servlets servlets-config-map))}
+                     ;; _ (println "normalized: " servlets-config-map)
+                     servlets-config-map {:servlets ;;(filter #(nil? (:class %))
+                                                            (:servlets servlets-config-map)}
 
                      ;; step 2: inject servlets config map into master config map
                      master-config (-> boot-config-edn-map (assoc-in [:servlets]
