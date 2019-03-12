@@ -3,8 +3,8 @@
 (ns {{gen-filters-ns}})
 
 {{#filters}}
-(gen-class :name {{ns}}
+(gen-class :name {{class}} ;; Java class name (underscores)
            :implements [javax.servlet.Filter]
-           :impl-ns {{ns}})
+           :impl-ns {{ns}}) ;; Clojure ns (dashes)
 
 {{/filters}}

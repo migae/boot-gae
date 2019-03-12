@@ -3,7 +3,7 @@
 (ns {{gen-servlets-ns}})
 
 {{#servlets}}
-(gen-class :name {{ns}}
+(gen-class :name {{class}}
            :extends javax.servlet.http.HttpServlet
 	   :exposes-methods {init superInit
                              destroy superDestroy}
