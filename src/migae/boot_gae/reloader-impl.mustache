@@ -9,13 +9,15 @@
 
 (defn -destroy [^Filter this])
 
-(def modified-namespaces (ns-tracker ["{{module}}"]))
+(def modified-namespaces (ns-tracker ["./" "../../"]))
 
 (defn -doFilter
   [^Filter this
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
+  (println (str "running {{module}} reloader"))
+  (println (str "wd: " (-> (java.io.File. ".") .getAbsolutePath)))
   (doseq [ns-sym (modified-namespaces)]
     (println (str "reloading " ns-sym))
     (require ns-sym :reload))
