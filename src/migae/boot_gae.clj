@@ -17,7 +17,7 @@
            [java.io File]
            [java.net URL URLClassLoader]))
 
-(def boot-version "2.7.1")
+(def boot-version "2.8.3")
 
 (def boot-config-edn "_boot_config.edn")
 (def webapp-edn "webapp.edn")
@@ -79,7 +79,7 @@
               appengine-config-map (-> (boot/tmp-file appengine-edn-f) slurp read-string)]
           (if servlet "target" (if (-> appengine-config-map :services)
                                  "target/default"
-                                 (str "target/" (-> appengine-config-map :module :name)))))))
+                                 (str "target/" (-> appengine-config-map :service :name)))))))
 
 (defn get-module-name
   [fileset servlet]
@@ -110,7 +110,7 @@
               module (if servlet "default"
                          (if (-> appengine-config-map :services)
                            "default"
-                           (-> appengine-config-map :module :name)))]
+                           (-> appengine-config-map :service :name)))]
           module)))
 
 (defn expand-home [s]
@@ -120,6 +120,7 @@
 
 (def sdk-string (let [jars (pod/resolve-dependency-jars (boot/get-env) true)
                       zip (filter #(.startsWith (.getName %) "appengine-java-sdk") jars)]
+                  ;; (println jars)
                   (if (empty? zip)
                     (println "appengine-java-sdk zipfile not found")
                     (let [fname (first (for [f zip] (.getName f)))
@@ -394,15 +395,15 @@
                                          appengine-edn))))))
 
              appengine-config-map (assoc-in appengine-config-map
-                                            [:module :name] module)
+                                            [:service :name] module)
 
              app-id (:app-id appengine-config-map)
 
-             version (-> appengine-config-map :module :version)
+             version (-> appengine-config-map :service :version)
              _ (if version
                  (if (not= version  (.toLowerCase version))
                    (throw (Exception. (str "Upper-case not allowed in GAE version string: " version))))
-                 (throw (Exception. ":module :version string required in " appengine-edn)))
+                 (throw (Exception. ":service :version string required in " appengine-edn)))
 
              appengine-config-map (assoc
                                    (-> appengine-config-map
@@ -637,12 +638,14 @@
   [d dir DIR str "output dir"
    c config-syms SYMS #{sym} "namespaced symbols bound to meta-config data"
    k keep bool "keep intermediate .clj files"
-   u unit-test bool "configure for unit testing (module = 'default')"
+   u unit-test bool "configure for unit testing (service = 'default')"
    v verbose bool "Print trace messages."]
   (comp
    (webxml :verbose verbose)
    (appengine :unit-test unit-test :verbose verbose)))
 
+;; FIXME: EAR support is deprecated for Java 8 and up. Remove
+;; META-INF, appengine-application.xml and application.xml
 (boot/deftask config-app
   "generate xml config files for microservices app"
   [d dir DIR str "output dir"
@@ -934,10 +937,14 @@
   ;;NB: java property expected by kickstart is "appengine.sdk.root"
   ;; (print-task "install-sdk" *opts*)
   (let [release (or release "RELEASE")
-        coords (vector 'com.google.appengine/appengine-java-sdk
-                       "RELEASE"
-                       :extension "zip")
-        jar-path (pod/resolve-dependency-jar (boot/get-env) coords)
+        sdk-coord (first
+                   (filter #(= (first %) 'com.google.appengine/appengine-java-sdk) (:dependencies (boot/get-env))))
+        sdk-version (second sdk-coord)
+        _ (println (str "installing sdk version: " sdk-version))
+        ;; coord (vector 'com.google.appengine/appengine-java-sdk
+        ;;               sdk-version
+        ;;               :extension "zip")
+        jar-path (pod/resolve-dependency-jar (boot/get-env) sdk-coord)
         sdk-dir (io/as-file (:sdk-root config-map))
         prev        (atom nil)]
     (boot/with-pre-wrap fileset
@@ -1001,8 +1008,8 @@
                   coords (:coords co)
                   pod-env (update-in (dissoc (boot/get-env) :checkouts)
                                      [:dependencies] #(identity %2)
-                                     (concat '[[boot/core "2.7.1"] ;; ~(str boot-version)]
-                                               [boot/pod "2.7.1"]] ;; ~(str boot-version)]]
+                                     (concat '[[boot/core "2.8.3"] ;; ~(str boot-version)]
+                                               [boot/pod "2.8.3"]] ;; ~(str boot-version)]]
                                              (vector coords)))
                   pod (future (pod/make-pod pod-env))]
               (if verbose (println "MODULE: " mod))
@@ -1210,7 +1217,7 @@
 
                             appengine-config-edn-map
                             (-> (boot/tmp-file boot-config-edn-f) slurp read-string)]
-                        (-> appengine-config-edn-map :module :name)))
+                        (-> appengine-config-edn-map :service :name)))
 
              ]
 
@@ -1239,7 +1246,7 @@
 
              (let [reloader-impl-content (stencil/render-file "migae/boot_gae/reloader-impl.mustache"
                                                               {:reloader-ns reloader-impl-ns
-                                                               :module module})
+                                                               :service module})
 
                    gen-reloader-content (stencil/render-file "migae/boot_gae/gen-reloader.mustache"
                                                              {:gen-reloader-ns gen-reloader-ns
@@ -1428,7 +1435,7 @@
    _ jacoco-agent-args VAL str"--jacoco_agent_args"
    _ jacoco-exec VAL str "--jacoco_exec"
 
-   _ services SERVICES edn "services map, keys :service, :port"
+   _ services SERVICES edn "services map, keys :service, :wardir, :port"
 
    s servlet bool "servlet app DEPRECATED"
    v verbose bool "verbose"]
@@ -1443,11 +1450,11 @@
           #_(if servlet "target"
                                     (if (-> appengine-config-map :services)
                                       "target/default"
-                                      (str "target/" (-> appengine-config-map :module :name))))
+                                      (str "target/" (-> appengine-config-map :service :name))))
 
           checkout-vec (-> (boot/get-env) :checkouts)
           cos (map #(assoc (apply hash-map %) :coords [(first %) (second %)]) checkout-vec)
-          default-mod (filter #(or (:default %) (not (:module %))) cos)
+          default-mod (filter #(or (:default %) (not (:service %))) cos)
           _ (if (> (count default-mod) 1)
               (throw (Exception. "Only one default module allowed" (count default-mod))))
 
