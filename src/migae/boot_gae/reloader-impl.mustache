@@ -16,7 +16,7 @@
    ^ServletRequest rqst
    ^ServletResponse resp
    ^FilterChain chain]
-  (println (str "running {{module}} reloader"))
+  (println (str "running {{service}} reloader"))
   (println (str "wd: " (-> (java.io.File. ".") .getAbsolutePath)))
   (doseq [ns-sym (modified-namespaces)]
     (println (str "reloading " ns-sym))
