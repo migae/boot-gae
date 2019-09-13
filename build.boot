@@ -8,14 +8,14 @@
  :repositories #(conj % ["maven-central" {:url "https://mvnrepository.com"}]
                       ["central" "https://repo1.maven.org/maven2/"])
  :dependencies   '[[org.clojure/clojure "1.10.0" :scope "provided"]
-                   [boot/core "2.8.2" :scope "provided"]
-                   [boot/pod "2.8.2" :scope "provided"]
+                   [boot/core "2.8.3" :scope "provided"]
+                   [boot/pod "2.8.3" :scope "provided"]
                    [me.raynes/fs "1.4.6"]
                    [stencil "0.5.0"]
                    [adzerk/boot-test "1.0.7" :scope "test"]
                    ;; ;; we need this so we can import KickStart for the run task:
                    ;; FIXME: what if user wants a different sdk version?
-                   [com.google.appengine/appengine-tools-sdk RELEASE]
+                   ;; [com.google.appengine/appengine-tools-sdk RELEASE]
                    ])
 
 (task-options!
