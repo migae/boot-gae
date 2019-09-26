@@ -7,7 +7,7 @@
  ;; :asset-paths #{"src"}
  :repositories #(conj % ["maven-central" {:url "https://mvnrepository.com"}]
                       ["central" "https://repo1.maven.org/maven2/"])
- :dependencies   '[[org.clojure/clojure "1.10.0" :scope "provided"]
+ :dependencies   '[[org.clojure/clojure "1.10.1" :scope "provided"]
                    [boot/core "2.8.3" :scope "provided"]
                    [boot/pod "2.8.3" :scope "provided"]
                    [me.raynes/fs "1.4.6"]
