@@ -564,6 +564,11 @@
             target-handler (target-middleware next-handler)]
         (target-handler fileset)))))
 
+(boot/deftask keep-config
+  "Retain master config file"
+  []
+  (builtin/sift :to-resource #{(re-pattern (str ".*" boot-config-edn))}))
+
 (boot/deftask build
   "Configure and build servlet or service app"
   [k keep bool "keep intermediate .clj and .edn files"
@@ -583,8 +588,11 @@
           (logging :verbose verbose)
           (webxml :verbose verbose)
           (appengine :verbose verbose)
-          (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
-          (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
+          (build-sift)
+          (if keep identity (keep-config))
+          (builtin/target)
+          ;; (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
+          ;; (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
           ;; (if servlet
           ;;   identity
           ;;   (comp
@@ -965,11 +973,6 @@
             (println "Installing unpacked SDK to: " (.getPath sdk-dir)))
           (pod/unpack-jar jar-path (.getParent sdk-dir))))
       fileset)))
-
-(boot/deftask keep-config
-  "Retain master config file"
-  []
-  (builtin/sift :to-resource #{(re-pattern (str ".*" boot-config-edn))}))
 
 ;; FIXME:  for dev phase, we want to include deps in test scope
 (boot/deftask libs
