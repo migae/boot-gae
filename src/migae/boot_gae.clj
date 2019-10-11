@@ -992,22 +992,21 @@
                         (into {}))
         cache      (boot/cache-dir! ::uber :global true)
         ]
-    (if (empty? cos)
-      (do
+    ;; (if (empty? cos)
+    ;;   (do
         ;;(println "NO CHECKOUTS")
-          (comp
-           (builtin/uber :as-jars true :exclude-scope #{"provided"})
-           ;; (builtin/sift :include #{#"zip$"} :invert true)
-           ;; (builtin/sift :include #{#".*appengine-api-.*jar$"} :invert true)
-           ;; (builtin/sift :include #{#".*jar$"})
-           (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")})))
-      (boot/with-pre-wrap [fileset]
-        ;;(println "CHECKOUTS")
+    ;; )
+    ;; also copy checkout deps
+    ;;(if (not (empty? cos))
+    (comp
+     (boot/with-pre-wrap [fileset]
+        (if verbose (println "CHECKOUTS: " cos))
         (let [tmpdir     (boot/tmp-dir!)]
           (doseq [co cos]
             (let [mod (if (:default co) "default"
                           (if-let [mod (:module co)]
-                            mod "default"))
+                            (str mod "/")
+                            ""))
                   coords (:coords co)
                   pod-env (update-in (dissoc (boot/get-env) :checkouts)
                                      [:dependencies] #(identity %2)
@@ -1032,7 +1031,7 @@
                   (doseq [jar jars]
                     (let [hash (digest/md5 jar)
                           name (str hash "-" (.getName jar))
-                          tmpjar-path (str ~mod "/WEB-INF/lib/" (.getName jar))
+                          tmpjar-path (str ~mod "WEB-INF/lib/" (.getName jar))
                           cached-jar  (io/file ~(.getPath cache) hash)]
                       (when-not (.exists cached-jar)
                         (if ~verbose (util/info "Caching jar %s...\n" name))
@@ -1040,7 +1039,14 @@
                       (if ~verbose (util/info "Adding cached jar %s...\n" tmpjar-path))
                       (file/hard-link cached-jar (doto (io/file ~(.getPath tmpdir) tmpjar-path)
                                                    io/make-parents))))))))
-          (boot/commit! (boot/add-resource fileset tmpdir)))))))
+          (boot/commit! (boot/add-resource fileset tmpdir))))
+     ;; always copy deps
+     (builtin/uber :as-jars true
+                   :exclude-scope #{"provided"}
+                   ;; FIXME: include scope test only in dev env.
+                   :include-scope #{"test" "compile"}
+                   )
+     (builtin/sift :move {#"(.*\.jar$)" (str lib-dir "/$1")}))))
 
                   ;; (recur (rest jars)
                   ;;        fs
