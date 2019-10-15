@@ -795,6 +795,7 @@
           (let [urls (into [] (for [url (:urls config)]
                                 {:path (str url)}))
                 class  (str/replace (:ns config) "-" "_")]
+            ;; (util/info (str "normalize class: " class \newline))
                 ;;ns (if (:ns config) (:ns config) (:class config)) ]
             (merge config {:urls urls
                            :class class
@@ -1683,9 +1684,14 @@
                                                 (str "Only one " filters-edn "file allowed; found "
                                                      (count filters-edn-files)))))
                      filters-edn-map (-> (boot/tmp-file filters-edn-f) slurp read-string)
+                     ;; _ (util/info (str "filters-edn-map: " filters-edn-map \newline))
+
                      filters-config-map (normalize-filter-configs filters-edn-map)
-                     filters-config-map {:filters (filter #(nil? (:class %))
-                                                            (:filters filters-config-map))}
+                     ;; _ (util/info (str "filters-config-map 1: " filters-config-map \newline))
+
+                     ;; filters-config-map {:filters (filter #(nil? (:class %))
+                     ;;                                        (:filters filters-config-map))}
+                     ;; _ (util/info (str "filters-config-map 2: " filters-config-map \newline))
 
                      ;; step 2: inject filters config map into master config map
                      master-config (-> boot-config-edn-map (assoc-in [:filters]
@@ -1697,10 +1703,12 @@
                                                          (boot/tmp-path boot-config-edn-f)
                                                          boot-config-edn-f))
                      ;; step 4: create filter generator
+                     ;; _ (util/info (str "filters-config-map: " filters-config-map \newline))
                      gen-filters-content (stencil/render-file "migae/boot_gae/gen-filters.mustache"
                                                                (assoc filters-config-map
                                                                       :gen-filters-ns
                                                                       gen-filters-ns))
+                     ;; _ (util/info (str "gen-filters-content: " \newline gen-filters-content \newline))
                      gen-filters-out-file (doto (io/file gen-filters-tmp-dir gen-filters-path)
                                              io/make-parents)]
                  ;; step 5: write new files
