@@ -550,9 +550,14 @@
                             (boot/add-asset workspace :exclude #{(re-pattern (str "/META-INF/.*"))})
                             (boot/commit!)))))))
 
-(boot/deftask build-sift
+(boot/deftask keep-config
+  "Retain master config file"
   []
-  ;; [u unit-test bool "sift for unit-test config"]
+  (builtin/sift :to-resource #{(re-pattern (str ".*" boot-config-edn))}))
+
+(boot/deftask clj
+  "Move *.clj and *.class files WEB-INF/classes for output to target"
+  []
   (fn middleware [next-handler]
     (fn handler [fileset]
       (let [;; module (if unit-test "default" (get-module-name fileset false))
@@ -563,11 +568,6 @@
                                )
             target-handler (target-middleware next-handler)]
         (target-handler fileset)))))
-
-(boot/deftask keep-config
-  "Retain master config file"
-  []
-  (builtin/sift :to-resource #{(re-pattern (str ".*" boot-config-edn))}))
 
 (boot/deftask build
   "Configure and build servlet or service app"
@@ -588,9 +588,9 @@
           (logging :verbose verbose)
           (webxml :verbose verbose)
           (appengine :verbose verbose)
-          (build-sift)
-          (if keep identity (keep-config))
-          (builtin/target)
+          (if keep (keep-config) identity)
+          (clj)
+          ;; (builtin/target)
           ;; (builtin/sift :move {#"(.*clj$)" (str classes-dir "/$1")})
           ;; (builtin/sift :move {#"(.*\.class$)" (str classes-dir "/$1")})
           ;; (if servlet
