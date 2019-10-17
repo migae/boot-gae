@@ -27,11 +27,13 @@
        :license     {"EPL" "http://www.eclipse.org/legal/epl-v10.html"}}
  push {:repo "clojars"})
 
+(deftask locally
+  "Build and install the project locally."
+  []
+  (comp (pom) (jar) (install)))
+
 (deftask monitor
   "watch etc."
   []
   (comp (watch)
-        (notify :audible true)
-        (pom)
-        (jar)
-        (install)))
+        (notify :audible true)))
